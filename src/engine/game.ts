@@ -75,6 +75,8 @@ export interface PlayerView {
   roundWind: Wind
   seatWinds: Record<Seat, Wind>
   concealed: TileId[]
+  /** Public: everyone can count tile backs at a real table. */
+  handCounts: Record<Seat, number>
   melds: Record<Seat, Meld[]>
   bonus: Record<Seat, TileId[]>
   discards: Record<Seat, TileId[]>
@@ -91,7 +93,12 @@ const live = (s: GameState): number => s.wall.length - DEAD_WALL
 
 const WINDS_BY_SEAT: Wind[] = ['E', 'S', 'W', 'N']
 
-export function createGameWithWall(config: RuleConfig, wall: TileId[], dealer: Seat = 0): GameState {
+export function createGameWithWall(
+  config: RuleConfig,
+  wall: TileId[],
+  dealer: Seat = 0,
+  roundWind: Wind = 'E',
+): GameState {
   const w = [...wall]
   const hands = {} as Record<Seat, TileId[]>
   const melds = {} as Record<Seat, Meld[]>
@@ -139,15 +146,21 @@ export function createGameWithWall(config: RuleConfig, wall: TileId[], dealer: S
     claims: {},
     lastDraw: { seat: dealer, tile: hands[dealer][0], kongReplacement: false, lastWallTile: false },
     lastClaimed: null,
-    roundWind: 'E',
+    roundWind,
     seatWinds,
     log: [],
     result: null,
   }
 }
 
-export function createGame(config: RuleConfig, seed: string, dealer: Seat = 0): GameState {
-  return createGameWithWall(config, buildWall({ flowers: config.flowers }, makeRng(seed)), dealer)
+export function createGame(
+  config: RuleConfig,
+  seed: string,
+  dealer: Seat = 0,
+  roundWind: Wind = 'E',
+): GameState {
+  const wall = buildWall({ flowers: config.flowers }, makeRng(seed))
+  return createGameWithWall(config, wall, dealer, roundWind)
 }
 
 function scoringContext(s: GameState, seat: Seat, byDiscard: boolean): ScoringContext {
@@ -436,6 +449,12 @@ export function playerView(s: GameState, seat: Seat): PlayerView {
     roundWind: s.roundWind,
     seatWinds: { ...s.seatWinds },
     concealed: [...s.hands[seat]],
+    handCounts: {
+      0: s.hands[0].length,
+      1: s.hands[1].length,
+      2: s.hands[2].length,
+      3: s.hands[3].length,
+    },
     melds,
     bonus: structuredClone(s.bonus),
     discards: structuredClone(s.discards),

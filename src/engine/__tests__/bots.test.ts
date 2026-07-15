@@ -15,12 +15,12 @@ import { SEATS, type Meld, type Seat } from '../types'
 /** Minimal hand-built view for policy-level tests. */
 function mkView(over: Partial<PlayerView> & { concealed: PlayerView['concealed'] }): PlayerView {
   const empty = () => ({ 0: [], 1: [], 2: [], 3: [] })
-  const base: PlayerView = {
+  const defaults: Omit<PlayerView, 'concealed'> = {
     seat: 0,
     seatWind: 'E',
     roundWind: 'E',
     seatWinds: { 0: 'E', 1: 'S', 2: 'W', 3: 'N' },
-    concealed: [],
+    handCounts: { 0: 13, 1: 13, 2: 13, 3: 13 },
     melds: empty() as PlayerView['melds'],
     bonus: empty() as PlayerView['bonus'],
     discards: empty() as PlayerView['discards'],
@@ -31,8 +31,8 @@ function mkView(over: Partial<PlayerView> & { concealed: PlayerView['concealed']
     pendingDiscard: null,
     lastClaimed: null,
     legal: [],
-    ...over,
   }
+  const base: PlayerView = { ...defaults, ...over }
   if (base.legal.length === 0 && base.phase === 'discard') {
     base.legal = [...new Set(base.concealed)].map((tile) => ({ type: 'discard', seat: base.seat, tile }))
   }

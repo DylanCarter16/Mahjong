@@ -8,7 +8,6 @@ import {
   legalActions,
   playerView,
   type Action,
-  type GameState,
   type RuleConfig,
 } from '../game'
 
@@ -193,8 +192,8 @@ describe('information boundary and hygiene', () => {
     const s = createGameWithWall(cfg(), wall)
     const v = playerView(s, 1)
     expect(v.concealed).toEqual(hand(TENPAI_DR))
-    expect((v as Record<string, unknown>).hands).toBeUndefined()
-    expect((v as Record<string, unknown>).wall).toBeUndefined()
+    expect((v as unknown as Record<string, unknown>).hands).toBeUndefined()
+    expect((v as unknown as Record<string, unknown>).wall).toBeUndefined()
     expect(v.wallCount).toBe(s.wall.length - 14)
     expect(v.legal).toEqual([])
   })
