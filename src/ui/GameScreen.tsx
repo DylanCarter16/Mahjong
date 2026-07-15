@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { AnalysisPanel } from '../analysis/AnalysisPanel'
 import { evalMyDiscards } from './aids'
 import { ActionBar } from './ActionBar'
 import { BonusRow, DiscardPool, MeldRow, OpponentPanel, SEAT_NAMES } from './panels'
@@ -13,6 +14,11 @@ export function GameScreen({ settings, onChangeSettings }: {
 }) {
   const { state, view, match, dispatch, newRound } = useGame(settings)
   const [showSettings, setShowSettings] = useState(false)
+  const [resultDismissed, setResultDismissed] = useState(false)
+
+  useEffect(() => {
+    if (state.phase !== 'finished') setResultDismissed(false)
+  }, [state.phase])
 
   const myDiscardTurn = view.phase === 'discard' && view.turn === HUMAN
   const evals = useMemo(
@@ -97,9 +103,20 @@ export function GameScreen({ settings, onChangeSettings }: {
           })}
         </div>
         <ActionBar view={view} onAction={dispatch} />
+        <AnalysisPanel view={view} state={state} />
+        {state.phase === 'finished' && resultDismissed && (
+          <button
+            className="rounded-lg bg-amber-400 px-4 py-2 font-semibold text-amber-950 hover:bg-amber-300 cursor-pointer"
+            onClick={newRound}
+          >
+            Next round →
+          </button>
+        )}
       </div>
 
-      {state.phase === 'finished' && <WinDialog state={state} match={match} onNewRound={newRound} />}
+      {state.phase === 'finished' && !resultDismissed && (
+        <WinDialog state={state} match={match} onNewRound={newRound} onClose={() => setResultDismissed(true)} />
+      )}
       {showSettings && (
         <SettingsPanel settings={settings} onChange={onChangeSettings} onClose={() => setShowSettings(false)} />
       )}

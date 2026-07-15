@@ -3,10 +3,11 @@ import type { MatchInfo } from './useGame'
 import { SEAT_NAMES } from './panels'
 import { SEATS } from '../engine/types'
 
-export function WinDialog({ state, match, onNewRound }: {
+export function WinDialog({ state, match, onNewRound, onClose }: {
   state: GameState
   match: MatchInfo
   onNewRound: () => void
+  onClose: () => void
 }) {
   const r = state.result
   if (!r) return null
@@ -64,6 +65,12 @@ export function WinDialog({ state, match, onNewRound }: {
           onClick={onNewRound}
         >
           Next round →
+        </button>
+        <button
+          className="mt-2 w-full rounded-lg bg-emerald-800 py-2 text-sm text-emerald-100 hover:bg-emerald-700 cursor-pointer"
+          onClick={onClose}
+        >
+          Review the table first (AI coach available below)
         </button>
       </div>
     </div>
