@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { LessonScreen } from './lessons/LessonScreen'
 import { GameScreen } from './ui/GameScreen'
 import { defaultSettings, type Settings } from './ui/useGame'
 
@@ -12,6 +13,8 @@ const tabCls = (active: boolean) =>
 export default function App() {
   const [tab, setTab] = useState<Tab>('play')
   const [settings, setSettings] = useState<Settings>(defaultSettings)
+  // Lesson progress is React state only — no storage, per the ground rules.
+  const [completedUnits, setCompletedUnits] = useState<Set<number>>(new Set())
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-950 via-emerald-900 to-emerald-950 text-emerald-50">
@@ -30,9 +33,10 @@ export default function App() {
         {tab === 'play' ? (
           <GameScreen settings={settings} onChangeSettings={setSettings} />
         ) : (
-          <div className="grid place-items-center py-24 text-emerald-300/70">
-            Lessons are coming in the next build step.
-          </div>
+          <LessonScreen
+            completed={completedUnits}
+            onCompleteUnit={(id) => setCompletedUnits((s) => new Set(s).add(id))}
+          />
         )}
       </main>
     </div>

@@ -148,6 +148,24 @@ function thirteenOrphansDecomposition(concealed: TileId[], melds: Meld[]): Decom
   return { shape: 'thirteenOrphans', duplicated }
 }
 
+// Meld validators — lessons call these instead of re-encoding the rules.
+export function isValidChow(tiles: TileId[]): boolean {
+  if (tiles.length !== 3) return false
+  if (!tiles.every(isSuit)) return false
+  const suit = tiles[0][0]
+  if (!tiles.every((t) => t[0] === suit)) return false
+  const ranks = tiles.map((t) => rankOf(t)!).sort((a, b) => a - b)
+  return ranks[1] === ranks[0] + 1 && ranks[2] === ranks[1] + 1 // no 9→1 wrap: ranks never exceed 9
+}
+
+export function isValidPung(tiles: TileId[]): boolean {
+  return tiles.length === 3 && tiles.every((t) => t === tiles[0])
+}
+
+export function isValidKong(tiles: TileId[]): boolean {
+  return tiles.length === 4 && tiles.every((t) => t === tiles[0])
+}
+
 /** Every valid reading of the hand (standard, seven pairs, thirteen orphans). */
 export function decompose(concealed: TileId[], melds: Meld[]): Decomposition[] {
   const out = standardDecompositions(concealed, melds)

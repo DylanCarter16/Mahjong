@@ -151,8 +151,12 @@ function threatScore(view: PlayerView, opp: Seat): number {
   )
 }
 
-/** Lower is safer against the given opponent. */
-function dangerScore(view: PlayerView, tile: TileId, opp: Seat): number {
+/**
+ * Lower is safer against the given opponent. Exported for the defence lesson
+ * and the discard-reading quiz, so drills grade with the same model the
+ * advanced bot plays by.
+ */
+export function dangerScore(view: PlayerView, tile: TileId, opp: Seat): number {
   const oppDiscards = view.discards[opp]
   if (oppDiscards.includes(tile)) return 0 // they discarded it: safe against them
   if (isHonour(tile)) return visibleCopies(view, tile) >= 3 ? 1 : 4
