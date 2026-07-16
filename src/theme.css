@@ -1,0 +1,106 @@
+/*
+ * Design tokens — the single source of truth for colour, type, elevation and
+ * motion. Derived from design-system/mahjong-play-learn/MASTER.md, overridden
+ * where the Phase 1.5 art direction (§5.4) demands it: deep desaturated felt,
+ * warm ivory tiles as the hero, one gold accent (whose turn it is), and a
+ * separate semantic scale (green = safe, orange = consider, red = danger).
+ * Components use tokens only — no raw hex or px in component files.
+ */
+
+@font-face {
+  /* Self-hosted Noto Serif TC subset: the 17 CJK glyphs on tile faces
+     (一二三四五六七八九萬東南西北中發白). 3.2 KB; renders identically on
+     every device — this is what fixes the red-dragon emoji mismatch. */
+  font-family: 'Mahjong Tiles TC';
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url('./assets/fonts/noto-serif-tc-tiles.woff2') format('woff2');
+  unicode-range: U+4e00, U+4e03, U+4e09, U+4e2d, U+4e5d, U+4e8c, U+4e94, U+516b,
+    U+516d, U+5317, U+5357, U+56db, U+6771, U+767c-767d, U+842c, U+897f;
+}
+
+@theme {
+  /* ---- felt (the room) ---- */
+  --color-felt: #1f3b30;
+  --color-felt-deep: #142720;
+  --color-felt-light: #2b4f3f;
+  --color-felt-line: #35594a;
+
+  /* ---- tiles (the hero) ---- */
+  --color-ivory: #f6efdd;
+  --color-ivory-warm: #efe2c4;
+  --color-ivory-bright: #fdf9ee;
+  --color-ivory-edge: #c9b78d;
+  --color-ivory-under: #a9946b;
+
+  /* ---- tile face pigments ---- */
+  --color-ink: #2c2b33;
+  --color-tile-red: #b23a30;
+  --color-tile-green: #1d6b4e;
+  --color-tile-blue: #2f5b9d;
+
+  /* ---- text on felt ---- */
+  --color-parchment: #e9e2cf;
+  --color-parchment-dim: #b8b49e;
+
+  /* ---- the one accent: whose turn it is / primary action ---- */
+  --color-accent: #e3b04b;
+  --color-on-accent: #3a2c10;
+
+  /* ---- semantic scale (meaning only, never decoration) ---- */
+  --color-safe: #53c383;
+  --color-consider: #e08a4e;
+  --color-danger: #e26a5e;
+
+  /* ---- lessons surface (same family, calmer, lighter) ---- */
+  --color-paper: #24382f;
+  --color-paper-raised: #2d453a;
+  --color-paper-line: #3d5949;
+
+  /* ---- type ---- */
+  --font-serif: 'Source Serif 4 Variable', Georgia, 'Times New Roman', serif;
+  --font-sans: 'Inter Variable', system-ui, -apple-system, sans-serif;
+  --font-tiles: 'Mahjong Tiles TC', 'Noto Serif TC', serif;
+
+  /* ---- elevation (light does the work, not skeuomorphism) ---- */
+  --shadow-tile: 0 1px 0 var(--color-ivory-under), 0 3px 6px rgb(0 0 0 / 0.35);
+  --shadow-tile-lifted: 0 2px 0 var(--color-ivory-under), 0 7px 14px rgb(0 0 0 / 0.45);
+  --shadow-panel: 0 10px 30px rgb(0 0 0 / 0.35);
+
+  /* ---- motion (weight, then stillness) ---- */
+  --ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-settle: 220ms;
+  --duration-ui: 180ms;
+}
+
+/* Numerals that change must not jitter. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The felt: a real table under a warm hanging bulb — light falls from
+   above-centre, edges vignette away, fine grain at whisper opacity. */
+.felt-surface {
+  background:
+    radial-gradient(115% 90% at 50% 12%, var(--color-felt-light) 0%, var(--color-felt) 46%, var(--color-felt-deep) 100%);
+  position: relative;
+}
+.felt-surface::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

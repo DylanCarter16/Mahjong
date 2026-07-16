@@ -1,12 +1,13 @@
-// Anthropic API wrapper. The key arrives as a function argument, lives in the
-// caller's component state only, and is never logged, persisted, or included
-// in errors. Never throws — every failure comes back as { ok: false }.
+// Client for the /api proxy. No prompts are built here and no key is
+// required — the server holds the key and constructs all prompt text. An
+// optional bring-your-own key (Settings) is forwarded as a header, kept in
+// memory only, and skips the shared rate limit.
 
-const ENDPOINT = 'https://api.anthropic.com/v1/messages'
-const PRIMARY_MODEL = 'claude-fable-5'
-const FALLBACK_MODEL = 'claude-opus-4-8'
+import type { Action, PlayerView, RoundResult } from '../engine/game'
 
-export type AnalysisResult = { ok: true; text: string; model: string } | { ok: false; error: string }
+export type AnalysisResult =
+  | { ok: true; text: string; model?: string }
+  | { ok: false; error: string; rateLimited?: boolean }
 
 /** Strip markdown code fences if the model wrapped its answer in them. */
 export function stripFences(text: string): string {
@@ -14,66 +15,85 @@ export function stripFences(text: string): string {
   return m ? m[1].trim() : text.trim()
 }
 
-interface MessagesResponse {
-  content?: { type: string; text?: string }[]
-  stop_reason?: string
-  error?: { message?: string }
+export interface RequestOptions {
+  byoKey?: string
+  signal?: AbortSignal
+  /** Streaming callback; receives the full accumulated text on each delta. */
+  onDelta?: (fullText: string) => void
 }
 
-async function callModel(apiKey: string, model: string, prompt: string): Promise<AnalysisResult> {
-  const res = await fetch(ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      // Required for browser-side calls with a user-supplied key.
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 600,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  })
-  const data = (await res.json().catch(() => ({}))) as MessagesResponse
-  if (!res.ok) {
-    return { ok: false, error: data.error?.message ?? `API error (HTTP ${res.status})` }
-  }
-  if (data.stop_reason === 'refusal') {
-    return { ok: false, error: 'refusal' }
-  }
-  const text = (data.content ?? [])
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text ?? '')
-    .join('')
-  if (!text) return { ok: false, error: 'Empty response from the model.' }
-  return { ok: true, text: stripFences(text), model }
+export const requestCoach = (view: PlayerView, opts: RequestOptions = {}) =>
+  post('/api/coach', { view }, opts)
+
+export const requestReview = (log: Action[], result: RoundResult | null, opts: RequestOptions = {}) =>
+  post('/api/review', { log, result }, opts)
+
+interface SseChunk {
+  text?: string
+  error?: string
+  done?: boolean
+  model?: string
 }
 
-/** Primary model with one fallback attempt on error or refusal. */
-export async function analyse(apiKey: string, prompt: string): Promise<AnalysisResult> {
+async function post(path: string, body: unknown, opts: RequestOptions): Promise<AnalysisResult> {
+  const { byoKey, signal, onDelta } = opts
   try {
-    const first = await callModel(apiKey, PRIMARY_MODEL, prompt)
-    if (first.ok) return first
-    const second = await callModel(apiKey, FALLBACK_MODEL, prompt).catch(
-      (): AnalysisResult => ({ ok: false, error: 'Network error reaching the API.' }),
-    )
-    return second.ok ? second : { ok: false, error: humanise(second.error, first.error) }
-  } catch {
-    try {
-      const second = await callModel(apiKey, FALLBACK_MODEL, prompt)
-      return second.ok ? second : { ok: false, error: humanise(second.error) }
-    } catch {
-      return { ok: false, error: 'Network error reaching the Anthropic API.' }
+    const stream = Boolean(onDelta)
+    const res = await fetch(`${path}${stream ? '?stream=1' : ''}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(byoKey ? { 'x-byo-key': byoKey } : {}),
+      },
+      body: JSON.stringify(body),
+      ...(signal ? { signal } : {}),
+    })
+    if (res.status === 429) {
+      return {
+        ok: false,
+        rateLimited: true,
+        error: 'The coach is rate-limited right now — try again in a moment.',
+      }
     }
-  }
-}
+    if (!stream || !res.ok || !res.body) {
+      const data = (await res.json().catch(() => ({}))) as { text?: string; model?: string; error?: string }
+      if (!res.ok) return { ok: false, error: data.error ?? `Coach error (HTTP ${res.status}).` }
+      return { ok: true, text: stripFences(data.text ?? ''), ...(data.model ? { model: data.model } : {}) }
+    }
 
-function humanise(...errors: (string | undefined)[]): string {
-  const e = errors.filter(Boolean).join('; ')
-  if (e.includes('refusal')) return 'The model declined to answer. Try again.'
-  if (e.includes('401') || e.toLowerCase().includes('authentication'))
-    return 'The API key was rejected — check it and try again.'
-  return e || 'Something went wrong talking to the API.'
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let full = ''
+    let model: string | undefined
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue
+        const raw = line.slice(5).trim()
+        if (!raw) continue
+        let chunk: SseChunk
+        try {
+          chunk = JSON.parse(raw) as SseChunk
+        } catch {
+          continue
+        }
+        if (chunk.text) {
+          full += chunk.text
+          onDelta?.(full)
+        }
+        if (chunk.error) return { ok: false, error: chunk.error }
+        if (chunk.done) model = chunk.model
+      }
+    }
+    if (!full) return { ok: false, error: 'Empty response from the coach.' }
+    return { ok: true, text: stripFences(full), ...(model ? { model } : {}) }
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') return { ok: false, error: 'cancelled' }
+    return { ok: false, error: 'Network error reaching the coach.' }
+  }
 }
