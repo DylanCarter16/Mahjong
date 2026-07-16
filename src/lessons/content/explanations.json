@@ -1,0 +1,95 @@
+{
+  "_meta": {
+    "generated": "authored offline at build time (see scripts/generate-explanations.mjs to regenerate with a model)",
+    "note": "Prose per CONCEPT and ERROR CLASS, not per item — items are infinite. Rendered instantly, no runtime LLM call."
+  },
+  "concepts": {
+    "tile.recognition.characters": {
+      "core": "Characters 萬 carry a numeral over a red 萬. Read the numeral, not the shape of the whole face — 四 and 西 trip beginners because both have boxy frames.",
+      "onError": "Slow reads compound: every second spent decoding your own hand is a second not spent watching the discards."
+    },
+    "tile.recognition.circles": {
+      "core": "Circles 筒 are counted, not read — the dot arrangement IS the number. Learn the layouts as shapes: 5 is a quincunx, 7 is a diagonal over a square, 9 is a 3×3 block.",
+      "onError": "6筒 vs 8筒 and 8筒 vs 9筒 are the classic misreads. Count columns first, then rows."
+    },
+    "tile.recognition.bamboo": {
+      "core": "Bamboo 索 are counted like circles, with one exception: 1索 is the bird. If you see a bird, it's a one.",
+      "onError": "2索 vs 3索 confusions come from counting sticks instead of rows — read the row structure."
+    },
+    "tile.recognition.honours": {
+      "core": "Four winds (東南西北) and three dragons (中 red, 發 green, 白 the blank frame). Honours never form chows — they only pair or pung.",
+      "onError": "東 (east) vs 南 (south) is a pure memorisation pair — link 東 to the sun rising behind a tree."
+    },
+    "set.chow": {
+      "core": "A chow is three consecutive ranks in ONE suit. Two hard rules: no wrapping (8-9-1 is illegal) and no honours.",
+      "onError": "If your 'run' crosses suits or wraps past 9, it isn't a run — the engine will never accept it and neither will your family."
+    },
+    "set.pung-kong": {
+      "core": "A pung is three identical tiles; a kong is all four, declared, and earns a replacement draw from the dead wall. Any tile kind can pung — including honours.",
+      "onError": "A kong is not just a big pung: it must be declared to count, and concealed kongs score differently from exposed ones."
+    },
+    "shape.standard": {
+      "core": "A winning hand is 4 sets + 1 pair = 14 tiles. If you can't carve the hand into exactly that, it doesn't win — no matter how pretty it looks.",
+      "onError": "Near-misses are designed to fool pattern-matching. Actually decompose: find the pair, then peel off sets from the lowest tile up."
+    },
+    "shape.decompose": {
+      "core": "Many hands read more than one way — 111222333 is three pungs OR three identical chows. Scoring always takes the most valuable reading, so seeing all readings is worth real faan.",
+      "onError": "If you got stuck, start from a different pair. The pair choice is what usually forces or frees the rest of the hand."
+    },
+    "shape.seven-pairs": {
+      "core": "Seven Pairs: exactly seven DIFFERENT pairs, fully concealed. Under our rule four-of-a-kind is NOT two pairs.",
+      "onError": "Count distinct kinds, not tiles: m1 m1 m1 m1 gives you one pair kind, not two."
+    },
+    "shape.thirteen-orphans": {
+      "core": "Thirteen Orphans: one of every terminal (1 and 9 of each suit) and every honour, plus a duplicate of any of them. A limit hand — and almost always a trap to chase.",
+      "onError": "Check for the missing kind first. Twelve kinds plus two duplicates is still one kind short."
+    },
+    "faan.patterns": {
+      "core": "Faan come from patterns layered on the shape: suit purity, pungs vs chows, winds, dragons, and how you won. The shape wins the hand; the patterns pay for it.",
+      "onError": "Score what fired, not what nearly fired: a wind pung only scores if it matches your seat or the round."
+    },
+    "faan.exclusivity": {
+      "core": "Superseded patterns never add: Pure One Suit replaces Mixed, Great Dragons replaces Small Dragons and its pungs, All Honours already contains All Pungs.",
+      "onError": "Double-counting is the most common scoring mistake at real tables. When a big pattern fires, ask what it swallowed."
+    },
+    "declare.minimum": {
+      "core": "Below the table minimum a complete hand cannot be declared. At a 0 minimum (family rules) every complete hand wins — at 3, a bare hand must find value first.",
+      "onError": "'Complete' and 'declarable' are different states. Know your table's minimum before you plan the hand."
+    },
+    "efficiency.shanten": {
+      "core": "Shanten is your distance from ready: 0 means one tile away (tenpai), -1 means won. Every discard decision starts with 'what keeps my shanten lowest?'",
+      "onError": "You can't feel shanten — you count it. Sets, partial sets, and the pair; the formula does the rest."
+    },
+    "efficiency.ukeire": {
+      "core": "Two discards can leave the same shanten but very different futures: ukeire counts the UNSEEN tiles that advance you. 24 live tiles beats 4 live tiles, every time.",
+      "onError": "Subtract what you can see: copies in your hand, the pools, and melds are dead. A wait on tiles that are already visible is a wait on nothing."
+    },
+    "efficiency.discard-choice": {
+      "core": "Best discard = lowest shanten first, widest wait second, safety third. Isolated honours go early; two-sided waits (like 45 waiting 3/6) are gold — never break them casually.",
+      "onError": "The usual leaks: hoarding isolated honours 'just in case', and trading a two-sided wait for a middle wait that looks prettier."
+    },
+    "defence.safe-tiles": {
+      "core": "A tile an opponent has already discarded is safe against them. Next safest: tiles adjacent to their discards, honours with most copies visible, and suits they are clearly flooding away.",
+      "onError": "Middle tiles (4-5-6) connect to the most waits — when in doubt, they are the most dangerous thing in your hand."
+    },
+    "defence.push-fold": {
+      "core": "When an opponent is loud (2+ melds, few discards, late wall) and your hand is still 2+ from ready — fold. Feed them nothing; losing less is winning more.",
+      "onError": "The expensive mistake isn't missing your win, it's paying for theirs. Count their tells before you push."
+    },
+    "read.suit-inference": {
+      "core": "Players rarely throw the suit they are collecting. A pool flooded with bamboo means the bamboo in your hand is relatively safe — and their hand lives in the other suits.",
+      "onError": "Read the pool as a story in draw order: early honour discards mean a normal hand; early middle-tile discards mean something shaped and dangerous."
+    },
+    "read.threat": {
+      "core": "Threat = exposed melds + a short discard row + a shrinking wall. Two melds is a warning; three is a siren.",
+      "onError": "Being confidently wrong about a threat is the expensive failure — track your calibration, not just your accuracy."
+    }
+  },
+  "errorClasses": {
+    "kept-isolated-honour": "You held an isolated honour over a useful suit tile. A lone wind pairs up about once in five hands — it is almost always the right first discard.",
+    "narrowed-wait": "Same shanten, much narrower wait: you kept the hand's distance but shrank its future. Compare live-tile counts, not just shanten.",
+    "broke-set": "That discard broke a made set or two-sided shape and moved you AWAY from ready. Count what each tile is holding together before it goes.",
+    "fed-the-threat": "That tile was hot against the table's loudest hand. When a player is close, every unsafe discard is a bet — make it deliberately or not at all.",
+    "overconfident": "Marked 'certain' and wrong — the most dangerous pattern at a real table. Confidence should track evidence, and the evidence is in the pools."
+  }
+}

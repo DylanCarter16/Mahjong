@@ -62,6 +62,13 @@ export const FlameIcon = ({ className }: IconProps) => (
   </svg>
 )
 
+export const LockIcon = ({ className }: IconProps) => (
+  <svg {...base(className)}>
+    <rect x="5" y="11" width="14" height="9" rx="2" />
+    <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+  </svg>
+)
+
 export const DownloadIcon = ({ className }: IconProps) => (
   <svg {...base(className)}>
     <path d="M12 4v10M8 10l4 4 4-4M5 19h14" />

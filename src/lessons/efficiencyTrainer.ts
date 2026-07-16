@@ -12,6 +12,8 @@ export interface DiscardEval {
   shantenAfter: number
   /** Unseen copies of every tile that would advance the remaining hand. */
   liveCount: number
+  /** The specific tile kinds that would advance the hand. */
+  advancing: TileId[]
 }
 
 export interface DiscardGrade {
@@ -32,12 +34,28 @@ const copies = (h: TileId[], kind: TileId) => h.filter((t) => t === kind).length
 export function evalDiscards(hand14: TileId[]): DiscardEval[] {
   return [...new Set(hand14)].map((tile) => {
     const rest = without(hand14, tile)
-    const liveCount = usefulTiles(rest, []).reduce(
+    const advancing = usefulTiles(rest, [])
+    const liveCount = advancing.reduce(
       (n, k) => n + Math.max(0, 4 - copies(rest, k) - (k === tile ? 1 : 0)),
       0,
     )
-    return { tile, shantenAfter: shanten(rest, []), liveCount }
+    return { tile, shantenAfter: shanten(rest, []), liveCount, advancing }
   })
+}
+
+export type CurveVerdict = 'optimal' | 'within-2-ukeire' | 'suboptimal' | 'blunder'
+
+/** Curve grading (§4.4): optimal / within-2-ukeire / suboptimal / blunder. */
+export function curveVerdict(grade: DiscardGrade, discard: TileId): CurveVerdict {
+  const mine = grade.perDiscard.find((e) => e.tile === discard)
+  if (!mine) throw new Error(`${discard} is not in the hand`)
+  const bestShanten = Math.min(...grade.perDiscard.map((e) => e.shantenAfter))
+  if (mine.shantenAfter > bestShanten) return 'blunder'
+  const bestLive = Math.max(
+    ...grade.perDiscard.filter((e) => e.shantenAfter === bestShanten).map((e) => e.liveCount),
+  )
+  if (grade.best.includes(discard)) return 'optimal'
+  return mine.liveCount >= bestLive - 2 ? 'within-2-ukeire' : 'suboptimal'
 }
 
 /**

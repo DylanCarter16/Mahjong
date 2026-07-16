@@ -2,13 +2,14 @@
 // then ask questions graded by the same models the bots play with.
 
 import { botAction, dangerScore, type Difficulty } from '../engine/bots'
+import { shanten } from '../engine/shanten'
 import { applyAction, createGame, playerView, type GameState, type PlayerView } from '../engine/game'
 import { makeRng, shuffle, type Rng } from '../engine/rng'
 import { glyph, suitOf, tileName } from '../engine/tiles'
 import { SEATS, type Seat, type Suit, type TileId } from '../engine/types'
 
 export interface QuizQuestion {
-  kind: 'suit' | 'safest'
+  kind: 'suit' | 'safest' | 'closest' | 'oneAway'
   prompt: string
   options: string[]
   /** For safest-tile questions: the tile behind each option. */
@@ -124,6 +125,91 @@ function safestQuestion(view: PlayerView, rng: Rng): QuizQuestion | null {
       `${tileName(ranked[0].t)} is safest: ${explainDanger(ranked[0].d)}. ` +
       `By contrast, ${tileName(ranked[ranked.length - 1].t)} is the riskiest of the three — ${explainDanger(ranked[ranked.length - 1].d)}.`,
   }
+}
+
+export interface ProgressiveQuiz {
+  /** The same game at two depths: reads sharpen with evidence. */
+  stages: QuizPosition[]
+  /** Ground truth from the seeded game — every seat's actual concealed hand. */
+  truth: Record<Seat, TileId[]>
+  /** Ground-truth shanten per opponent (for "who is closest" reveals). */
+  truthShanten: Record<Seat, number>
+}
+
+function truthQuestions(state: GameState, rng: Rng): QuizQuestion[] {
+  const opps = SEATS.filter((x) => x !== 0)
+  const sh = (seat: Seat) => shantenOf(state, seat)
+  const closest = opps.reduce((a, b) => (sh(b) < sh(a) ? b : a))
+  const questions: QuizQuestion[] = []
+
+  questions.push({
+    kind: 'closest',
+    prompt: 'Judging from melds and discards — who is closest to winning?',
+    options: opps.map((o) => NAMES[o]),
+    correct: opps.indexOf(closest),
+    explain:
+      `Ground truth: ${opps
+        .map((o) => `${NAMES[o]} is ${sh(o) === 0 ? 'TENPAI' : `${sh(o)} from ready`}`)
+        .join(', ')}. ` +
+      `Exposed melds and a short, suit-lopsided discard row are the visible tells.`,
+  })
+
+  const target = pick(opps, rng)
+  const tenpai = sh(target) === 0
+  questions.push({
+    kind: 'oneAway',
+    prompt: `Is ${NAMES[target]} one tile from winning (tenpai)?`,
+    options: ['Yes — treat every discard as risky', 'No — there is still time'],
+    correct: tenpai ? 0 : 1,
+    opponent: target,
+    explain: tenpai
+      ? `Yes. Their actual hand is ${sh(target)} from ready — the visible signs (melds, few discards) were the warning.`
+      : `No — their actual hand is still ${sh(target)} away. Don't fold to shadows; count the evidence.`,
+  })
+  return questions
+}
+
+const pick = <T,>(xs: readonly T[], rng: Rng): T => xs[Math.floor(rng.next() * xs.length)]
+
+function shantenOf(state: GameState, seat: Seat): number {
+  return shanten(state.hands[seat], state.melds[seat])
+}
+
+/**
+ * A progressive-reveal quiz: the same seeded game shown early and later, with
+ * questions at each stage and a ground-truth reveal at the end (§4.4).
+ */
+export function generateProgressive(seed: string): ProgressiveQuiz {
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const early = playTo(`${seed}-${attempt}`, 10)
+    if (!early) continue
+    const late = playTo(`${seed}-${attempt}`, 24) // deterministic: same game, deeper
+    if (!late) continue
+    const rngQ = makeRng(`${seed}-pq-${attempt}`)
+    const earlyView = playerView(early, 0)
+    const lateView = playerView(late, 0)
+    const earlyQs = [suitQuestion(earlyView)].filter((q): q is QuizQuestion => q !== null)
+    const lateQs = [
+      suitQuestion(lateView),
+      safestQuestion(lateView, rngQ),
+      ...truthQuestions(late, rngQ),
+    ].filter((q): q is QuizQuestion => q !== null)
+    if (earlyQs.length < 1 || lateQs.length < 3) continue
+    return {
+      stages: [
+        { view: earlyView, questions: earlyQs },
+        { view: lateView, questions: lateQs },
+      ],
+      truth: structuredClone(late.hands),
+      truthShanten: {
+        0: shantenOf(late, 0),
+        1: shantenOf(late, 1),
+        2: shantenOf(late, 2),
+        3: shantenOf(late, 3),
+      },
+    }
+  }
+  throw new Error(`could not generate a progressive quiz for seed ${seed}`)
 }
 
 /** Deterministic for a given seed. Tries a few sub-seeds until a rich position appears. */

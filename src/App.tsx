@@ -15,7 +15,6 @@ const tabCls = (active: boolean) =>
 export default function App() {
   const [tab, setTab] = useState<Tab>('play')
   const [settings, setSettings] = useState<Settings>(defaultSettings)
-  const [completedUnits, setCompletedUnits] = useState<Set<number>>(new Set())
   const [hash, setHash] = useState(window.location.hash)
 
   useEffect(() => {
@@ -42,14 +41,7 @@ export default function App() {
         </button>
       </nav>
       <main className="relative z-10 mx-auto max-w-6xl">
-        {tab === 'play' ? (
-          <GameScreen settings={settings} onChangeSettings={setSettings} />
-        ) : (
-          <LessonScreen
-            completed={completedUnits}
-            onCompleteUnit={(id) => setCompletedUnits((s) => new Set(s).add(id))}
-          />
-        )}
+        {tab === 'play' ? <GameScreen settings={settings} onChangeSettings={setSettings} /> : <LessonScreen />}
       </main>
     </div>
   )
