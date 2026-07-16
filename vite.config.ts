@@ -1,5 +1,5 @@
 /// <reference types="vitest/config" />
-import { defineConfig, type Plugin, type ViteDevServer } from 'vite'
+import { defineConfig, loadEnv, type Plugin, type ViteDevServer } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -10,6 +10,16 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 function devApi(): Plugin {
   return {
     name: 'dev-api',
+    configResolved(config) {
+      // Vite only exposes env files to client code (VITE_*); the API handlers
+      // read process.env like real Vercel functions. Mirror the server-side
+      // key from .env/.env.local so `npm run dev` matches production. The key
+      // never reaches the client bundle — it has no VITE_ prefix.
+      const env = loadEnv(config.mode, config.root, '')
+      if (env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+        process.env.ANTHROPIC_API_KEY = env.ANTHROPIC_API_KEY
+      }
+    },
     configureServer(server: ViteDevServer) {
       server.middlewares.use((req, res, next) => {
         void handle(server, req, res, next)
