@@ -17,6 +17,8 @@ export interface Settings extends RuleConfig {
   difficulties: Record<Seat, Difficulty>
   numberedTiles: boolean
   beginnerAids: boolean
+  /** Optional bring-your-own Anthropic key. Memory only — never persisted. */
+  byoKey: string
 }
 
 export const defaultSettings: Settings = {
@@ -26,6 +28,7 @@ export const defaultSettings: Settings = {
   difficulties: { 0: 'intermediate', 1: 'easy', 2: 'intermediate', 3: 'advanced' },
   numberedTiles: true,
   beginnerAids: true,
+  byoKey: '',
 }
 
 export interface MatchInfo {

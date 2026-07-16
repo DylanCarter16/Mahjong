@@ -1,72 +1,74 @@
-import { glyph, isSuit, rankOf, suitOf, tileName } from '../engine/tiles'
-import type { TileId } from '../engine/types'
+// The one tile component (§5.3): used by the table, the hand, discard pools,
+// lessons and trainers. Faces are procedural SVG (TileFace); no fonts or
+// assets outside our control. Colours/relief come from design tokens.
 
-const SUIT_COLORS: Record<string, string> = {
-  m: 'text-rose-600',
-  p: 'text-sky-600',
-  s: 'text-emerald-600',
-}
+import { tileName } from '../engine/tiles'
+import type { TileId } from '../engine/types'
+import { TileBack, TileFace } from './tiles/TileFace'
+
+export type TileState = 'normal' | 'dimmed' | 'highlighted' | 'safe' | 'danger' | 'selected'
 
 const SIZES = {
-  sm: 'h-8 w-6 text-[1.35rem] rounded',
-  md: 'h-11 w-8 text-[1.9rem] rounded-md',
-  lg: 'h-16 w-12 text-[2.8rem] rounded-lg',
+  sm: 'w-7',
+  md: 'w-10',
+  lg: 'w-14',
+}
+
+// Rings use the semantic scale: highlighted = suggested/consider (orange),
+// safe = keep (green), danger = red. Gold is reserved for turn indication.
+const STATE_CLS: Record<TileState, string> = {
+  normal: '',
+  dimmed: 'opacity-45 saturate-50',
+  highlighted: 'ring-2 ring-consider ring-offset-1 ring-offset-felt-deep',
+  safe: 'ring-2 ring-safe ring-offset-1 ring-offset-felt-deep',
+  danger: 'ring-2 ring-danger ring-offset-1 ring-offset-felt-deep',
+  selected: '-translate-y-1.5 ring-2 ring-ivory-bright',
 }
 
 export interface TileViewProps {
   /** null renders a face-down tile back. */
   tile: TileId | null
+  /** Rank overlay, top-left, neutral tone. */
   numbered?: boolean
   size?: keyof typeof SIZES
   onClick?: () => void
-  /** Beginner-aid ring: orange = suggested discard, green = keep. */
+  state?: TileState
+  /** Legacy alias for state, used by older call sites. */
   ring?: 'suggest' | 'keep' | 'selected'
   title?: string
 }
 
-export function TileView({ tile, numbered = false, size = 'md', onClick, ring, title }: TileViewProps) {
-  const ringCls =
-    ring === 'suggest'
-      ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-emerald-900'
-      : ring === 'keep'
-        ? 'ring-2 ring-lime-400 ring-offset-1 ring-offset-emerald-900'
-        : ring === 'selected'
-          ? 'ring-2 ring-white -translate-y-1'
-          : ''
+const RING_TO_STATE: Record<NonNullable<TileViewProps['ring']>, TileState> = {
+  suggest: 'highlighted',
+  keep: 'safe',
+  selected: 'selected',
+}
+
+export function TileView({ tile, numbered = false, size = 'md', onClick, state, ring, title }: TileViewProps) {
+  const resolved: TileState = state ?? (ring ? RING_TO_STATE[ring] : 'normal')
+  const cls = `${SIZES[size]} aspect-[5/7] shrink-0 rounded-[8%] transition-transform duration-(--duration-ui) shadow-tile ${STATE_CLS[resolved]}`
 
   if (tile === null) {
     return (
-      <div
-        className={`${SIZES[size]} shrink-0 bg-emerald-700 border border-emerald-950/60 shadow-sm`}
-        aria-label="face-down tile"
-      />
+      <div className={cls} aria-label="face-down tile">
+        <TileBack />
+      </div>
     )
   }
 
-  const numberedOverlay = numbered && isSuit(tile) && (
-    <span
-      className={`absolute -top-0.5 right-0.5 text-[0.6rem] font-bold leading-none ${SUIT_COLORS[suitOf(tile)!]}`}
-    >
-      {rankOf(tile)}
-    </span>
-  )
-
-  const inner = (
-    <>
-      <span className="leading-none select-none text-neutral-900">{glyph(tile)}</span>
-      {numberedOverlay}
-    </>
-  )
-
-  const cls = `${SIZES[size]} shrink-0 relative flex items-center justify-center bg-amber-50 border border-neutral-400/70 shadow-[0_2px_0_rgba(0,0,0,0.35)] ${ringCls}`
-
   return onClick ? (
-    <button type="button" onClick={onClick} title={title ?? tileName(tile)} className={`${cls} cursor-pointer transition-transform hover:-translate-y-1`}>
-      {inner}
+    <button
+      type="button"
+      onClick={onClick}
+      title={title ?? tileName(tile)}
+      aria-label={title ?? tileName(tile)}
+      className={`${cls} cursor-pointer hover:-translate-y-1.5 hover:shadow-tile-lifted focus-visible:outline-2 focus-visible:outline-accent`}
+    >
+      <TileFace tile={tile} showRank={numbered} />
     </button>
   ) : (
     <div title={title ?? tileName(tile)} className={cls}>
-      {inner}
+      <TileFace tile={tile} showRank={numbered} />
     </div>
   )
 }

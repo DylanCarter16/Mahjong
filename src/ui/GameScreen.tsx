@@ -87,7 +87,7 @@ export function GameScreen({ settings, onChangeSettings }: {
             const title = e
               ? `${e.suggested ? 'Suggested discard — ' : ''}discarding leaves ${
                   e.shantenAfter === -1 ? 'a winning hand' : `${e.shantenAfter} shanten`
-                }, ${e.liveCount} live tiles`
+                }, ${e.ukeire} live tiles`
               : undefined
             return (
               <TileView
@@ -103,7 +103,7 @@ export function GameScreen({ settings, onChangeSettings }: {
           })}
         </div>
         <ActionBar view={view} onAction={dispatch} />
-        <AnalysisPanel view={view} state={state} />
+        <AnalysisPanel view={view} state={state} byoKey={settings.byoKey || undefined} />
         {state.phase === 'finished' && resultDismissed && (
           <button
             className="rounded-lg bg-amber-400 px-4 py-2 font-semibold text-amber-950 hover:bg-amber-300 cursor-pointer"

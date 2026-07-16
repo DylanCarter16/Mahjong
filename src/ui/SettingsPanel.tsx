@@ -87,6 +87,22 @@ export function SettingsPanel({ settings, onChange, onClose }: {
             onChange={(e) => onChange({ ...settings, beginnerAids: e.target.checked })}
           />
         </div>
+        <h3 className="mt-4 text-xs uppercase tracking-wide text-emerald-300/70">AI coach</h3>
+        <div className="py-1.5">
+          <label htmlFor="byo-key" className="block">Use my own API key <span className="text-emerald-400/60">(optional)</span></label>
+          <input
+            id="byo-key"
+            type="password"
+            autoComplete="off"
+            placeholder="held in memory only"
+            value={settings.byoKey}
+            onChange={(e) => onChange({ ...settings, byoKey: e.target.value })}
+            className="mt-1 w-full rounded border border-emerald-600 bg-emerald-800 px-2 py-1 font-mono text-sm"
+          />
+          <p className="mt-1 text-xs text-emerald-300/60">
+            Skips the shared rate limit. Never saved, never logged — it lives in this tab's memory only.
+          </p>
+        </div>
         <p className="mt-3 text-xs text-emerald-300/60">
           Rule and bot changes take effect when the next round is dealt.
         </p>
