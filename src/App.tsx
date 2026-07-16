@@ -8,8 +8,8 @@ import { defaultSettings, type Settings } from './ui/useGame'
 type Tab = 'play' | 'learn'
 
 const tabCls = (active: boolean) =>
-  `px-4 py-1.5 rounded-full text-sm font-semibold transition-colors cursor-pointer ${
-    active ? 'bg-amber-400 text-amber-950' : 'text-emerald-200 hover:bg-emerald-800'
+  `px-4 py-1.5 rounded-full text-sm font-semibold transition-colors duration-(--duration-ui) cursor-pointer ${
+    active ? 'bg-accent text-on-accent' : 'text-parchment-dim hover:bg-felt-light/60 hover:text-parchment'
   }`
 
 export default function App() {
@@ -28,11 +28,11 @@ export default function App() {
   if (hash === '#/gallery') return <GalleryScreen />
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-950 via-emerald-900 to-emerald-950 text-emerald-50">
+    <div className={`min-h-screen ${tab === 'play' ? 'felt-surface' : 'bg-paper'}`}>
       <TileDefs />
-      <nav className="flex items-center gap-3 px-4 pt-4">
-        <h1 className="mr-2 text-lg font-bold tracking-tight">
-          🀄 Mahjong <span className="font-normal text-emerald-300/70">play + learn</span>
+      <nav className="relative z-10 flex items-center gap-3 px-4 pt-4">
+        <h1 className="mr-2 font-serif text-lg font-bold tracking-tight text-parchment">
+          Mahjong <span className="font-sans text-sm font-normal text-parchment-dim">play + learn</span>
         </h1>
         <button className={tabCls(tab === 'play')} onClick={() => setTab('play')}>
           Play
@@ -41,7 +41,7 @@ export default function App() {
           Learn
         </button>
       </nav>
-      <main className="mx-auto max-w-6xl">
+      <main className="relative z-10 mx-auto max-w-6xl">
         {tab === 'play' ? (
           <GameScreen settings={settings} onChangeSettings={setSettings} />
         ) : (

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { CloseIcon, SparkleIcon } from '../ui/icons'
 import { rankDiscards, readOpponents } from '../engine/analysis'
 import type { GameState, PlayerView } from '../engine/game'
 import { glyph, tileName } from '../engine/tiles'
@@ -14,10 +15,10 @@ function viewKey(view: PlayerView): string {
 
 function dangerLabel(score: number | undefined): { text: string; cls: string } {
   const s = score ?? 5
-  if (s === 0) return { text: 'safe', cls: 'text-lime-300' }
-  if (s <= 2) return { text: 'low', cls: 'text-lime-200/80' }
-  if (s <= 4) return { text: 'med', cls: 'text-amber-300' }
-  return { text: 'high', cls: 'text-rose-300' }
+  if (s === 0) return { text: 'safe', cls: 'text-safe' }
+  if (s <= 2) return { text: 'low', cls: 'text-safe/80' }
+  if (s <= 4) return { text: 'med', cls: 'text-consider' }
+  return { text: 'high', cls: 'text-danger' }
 }
 
 export function AnalysisPanel({ view, state, byoKey }: {
@@ -122,10 +123,10 @@ export function AnalysisPanel({ view, state, byoKey }: {
   if (!open) {
     return (
       <button
-        className="rounded-lg bg-emerald-800/80 px-3 py-1.5 text-sm text-emerald-100 hover:bg-emerald-700 cursor-pointer"
+        className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-felt-light/60 px-3 py-1.5 text-sm text-parchment transition-colors duration-(--duration-ui) hover:bg-felt-light"
         onClick={() => setOpen(true)}
       >
-        ✨ AI coach
+        <SparkleIcon /> AI coach
       </button>
     )
   }
@@ -133,17 +134,21 @@ export function AnalysisPanel({ view, state, byoKey }: {
   const shownText = result?.ok ? result.text : streamText
 
   return (
-    <div className="w-full max-w-2xl rounded-2xl border border-emerald-700 bg-emerald-950/80 p-4 text-sm">
+    <div className="fixed right-0 top-0 z-20 h-full w-[22rem] max-w-[92vw] overflow-y-auto border-l border-felt-line bg-felt-deep/95 p-4 text-sm shadow-panel backdrop-blur-sm">
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-emerald-50">✨ AI coach</h3>
-        <button className="text-emerald-300 hover:text-white cursor-pointer" onClick={() => setOpen(false)}>✕</button>
+        <h3 className="flex items-center gap-1.5 font-serif font-semibold text-parchment">
+          <SparkleIcon className="h-4 w-4 text-accent" /> AI coach
+        </h3>
+        <button className="cursor-pointer text-parchment-dim hover:text-parchment" onClick={() => setOpen(false)} aria-label="close coach">
+          <CloseIcon />
+        </button>
       </div>
 
       {facts && (
         <div className="mt-2 overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="text-left text-emerald-300/60">
+              <tr className="text-left text-parchment-dim">
                 <th className="py-1 pr-2">discard</th>
                 <th className="py-1 pr-2">shanten</th>
                 <th className="py-1 pr-2">live tiles</th>
@@ -154,7 +159,7 @@ export function AnalysisPanel({ view, state, byoKey }: {
               {facts.ranked.map((r, i) => {
                 const d = dangerLabel(r.dangerByOpponent[facts.threat.seat])
                 return (
-                  <tr key={r.tile} className={i === 0 ? 'font-bold text-amber-300' : 'text-emerald-100'}>
+                  <tr key={r.tile} className={i === 0 ? 'font-bold text-consider' : 'text-parchment'}>
                     <td className="py-0.5 pr-2">
                       {glyph(r.tile)} {tileName(r.tile)}
                     </td>
@@ -172,38 +177,38 @@ export function AnalysisPanel({ view, state, byoKey }: {
       <div className="mt-3 flex flex-wrap gap-2">
         <button
           disabled={busy || cooldown > 0 || roundOver}
-          className="rounded-lg bg-amber-400 px-4 py-2 font-semibold text-amber-950 hover:bg-amber-300 disabled:opacity-40 cursor-pointer"
+          className="cursor-pointer rounded-lg bg-accent px-4 py-2 font-semibold text-on-accent transition-colors duration-(--duration-ui) hover:brightness-110 disabled:opacity-40"
           onClick={() => void runCoach(true)}
         >
           Analyse my hand
         </button>
         <button
           disabled={busy || cooldown > 0 || !roundOver}
-          className="rounded-lg bg-sky-400 px-4 py-2 font-semibold text-sky-950 hover:bg-sky-300 disabled:opacity-40 cursor-pointer"
+          className="cursor-pointer rounded-lg bg-ivory px-4 py-2 font-semibold text-ink transition-colors duration-(--duration-ui) hover:bg-ivory-bright disabled:opacity-40"
           onClick={() => void runReview()}
           title={roundOver ? '' : 'Available when the round ends'}
         >
           Review that round
         </button>
-        {cooldown > 0 && <span className="self-center text-xs text-emerald-300/70">wait {cooldown}s</span>}
+        {cooldown > 0 && <span className="tabular self-center text-xs text-parchment-dim">wait {cooldown}s</span>}
       </div>
 
-      {busy && !shownText && <p className="mt-3 animate-pulse text-emerald-200">Thinking…</p>}
+      {busy && !shownText && <p className="mt-3 animate-pulse text-parchment-dim">Thinking…</p>}
       {result && !result.ok && (
-        <div className="mt-3 rounded-lg border border-rose-500 bg-rose-500/15 p-3 text-rose-100">
+        <div className="mt-3 rounded-lg border border-danger bg-danger/15 p-3 text-parchment">
           {result.error}
           <button className="ml-2 underline cursor-pointer" onClick={() => setResult(null)}>dismiss</button>
         </div>
       )}
       {shownText && (
-        <div className="mt-3 whitespace-pre-wrap rounded-lg border border-emerald-600 bg-emerald-900/70 p-3 text-emerald-50">
+        <div className="mt-3 whitespace-pre-wrap rounded-lg border border-felt-line bg-felt/70 p-3 text-parchment">
           {shownText}
           {result?.ok && result.model && (
-            <div className="mt-2 text-right text-[0.65rem] text-emerald-400/60">{result.model}</div>
+            <div className="mt-2 text-right text-[0.65rem] text-parchment-dim/70">{result.model}</div>
           )}
         </div>
       )}
-      <p className="mt-2 text-[0.65rem] text-emerald-400/50">
+      <p className="mt-2 text-[0.65rem] text-parchment-dim/70">
         Table = exact engine analysis (instant, local). Prose = model narration{byoKey ? ', using your key' : ''}.
       </p>
     </div>

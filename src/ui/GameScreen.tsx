@@ -2,11 +2,17 @@ import { useEffect, useMemo, useState } from 'react'
 import { AnalysisPanel } from '../analysis/AnalysisPanel'
 import { evalMyDiscards } from './aids'
 import { ActionBar } from './ActionBar'
-import { BonusRow, DiscardPool, MeldRow, OpponentPanel, SEAT_NAMES } from './panels'
+import { SlidersIcon } from './icons'
+import { BonusRow, DiscardPool, MeldRow, SeatStrip, WallRing } from './panels'
 import { SettingsPanel } from './SettingsPanel'
+import { WIND_CHARS } from './tiles/layouts'
 import { TileView } from './TileView'
 import { HUMAN, useGame, type Settings } from './useGame'
 import { WinDialog } from './WinDialog'
+import { DealerIcon } from './icons'
+
+/** Live tiles at deal time: full wall minus the 53 dealt minus the dead 14. */
+const initialLive = (flowers: boolean) => (flowers ? 144 : 136) - 53 - 14
 
 export function GameScreen({ settings, onChangeSettings }: {
   settings: Settings
@@ -29,65 +35,112 @@ export function GameScreen({ settings, onChangeSettings }: {
   const evalFor = (tile: string) => evals.find((e) => e.tile === tile)
 
   const dealerSeat = ([0, 1, 2, 3] as const).find((s) => view.seatWinds[s] === 'E')!
+  const myTurnGlow = view.turn === HUMAN && view.phase !== 'finished' ? 'seat-glow' : ''
 
   return (
-    <div className="flex flex-col gap-3 items-stretch">
-      <header className="flex items-center justify-between px-4 py-2">
-        <div className="text-sm text-emerald-200/80">
-          Round {match.roundNo} · {view.roundWind} round · min {view.faanMinimum} faan
-        </div>
+    <div className="flex flex-col items-stretch gap-2">
+      <header className="flex items-center justify-between px-4 py-1.5">
+        <div className="tabular text-xs text-parchment-dim">Round {match.roundNo}</div>
         <button
-          className="rounded-lg bg-emerald-800 px-3 py-1.5 text-sm hover:bg-emerald-700 cursor-pointer"
+          className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-felt-light/60 px-3 py-1.5 text-sm text-parchment transition-colors duration-(--duration-ui) hover:bg-felt-light"
           onClick={() => setShowSettings(true)}
         >
-          ⚙ Settings
+          <SlidersIcon /> Settings
         </button>
       </header>
 
-      {/* West bot across the table */}
+      {/* West across the table */}
       <div className="flex justify-center">
-        <OpponentPanel view={view} seat={2} numbered={settings.numberedTiles} dealerSeat={dealerSeat} />
+        <SeatStrip view={view} seat={2} numbered={settings.numberedTiles} dealerSeat={dealerSeat} />
       </div>
 
-      <div className="flex items-center justify-center gap-4">
-        {/* North bot on the left */}
-        <OpponentPanel view={view} seat={3} numbered={settings.numberedTiles} dealerSeat={dealerSeat} />
+      {/* The table centre: pools laid in front of each seat, oriented to it */}
+      <div className="flex items-center justify-center gap-3">
+        <div className="hidden md:block">
+          <SeatStrip view={view} seat={3} numbered={settings.numberedTiles} dealerSeat={dealerSeat} />
+        </div>
 
-        {/* Discard cross with the wall counter in the middle */}
-        <div className="grid grid-cols-[11rem_auto_11rem] grid-rows-[auto_auto_auto] place-items-center gap-2 rounded-3xl bg-emerald-800/40 p-4 shadow-inner">
+        <div className="hidden grid-cols-[6.5rem_minmax(12rem,15rem)_6.5rem] grid-rows-[auto_minmax(9rem,auto)_auto] place-items-center gap-1 rounded-[2rem] p-3 md:grid">
           <div />
-          <DiscardPool view={view} seat={2} numbered={settings.numberedTiles} />
-          <div />
-          <DiscardPool view={view} seat={3} numbered={settings.numberedTiles} />
-          <div className="grid place-items-center rounded-2xl bg-emerald-950/70 px-6 py-4 text-center">
-            <div className="text-3xl font-bold font-mono text-emerald-50">{view.wallCount}</div>
-            <div className="text-xs text-emerald-300/70">tiles left</div>
+          <div className="rotate-180">
+            <DiscardPool view={view} seat={2} numbered={settings.numberedTiles} />
           </div>
-          <DiscardPool view={view} seat={1} numbered={settings.numberedTiles} />
+          <div />
+
+          <div className="relative h-52 w-24">
+            <div className="absolute inset-0 grid place-items-center">
+              <div className="w-52 rotate-90">
+                <DiscardPool view={view} seat={3} numbered={settings.numberedTiles} />
+              </div>
+            </div>
+          </div>
+          <WallRing
+            live={view.wallCount}
+            total={initialLive(state.config.flowers)}
+            roundWind={view.roundWind}
+            faanMinimum={view.faanMinimum}
+          />
+          <div className="relative h-52 w-24">
+            <div className="absolute inset-0 grid place-items-center">
+              <div className="w-52 -rotate-90">
+                <DiscardPool view={view} seat={1} numbered={settings.numberedTiles} />
+              </div>
+            </div>
+          </div>
+
           <div />
           <DiscardPool view={view} seat={0} numbered={settings.numberedTiles} />
           <div />
         </div>
 
-        {/* South bot on the right */}
-        <OpponentPanel view={view} seat={1} numbered={settings.numberedTiles} dealerSeat={dealerSeat} />
+        <div className="hidden md:block">
+          <SeatStrip view={view} seat={1} numbered={settings.numberedTiles} dealerSeat={dealerSeat} />
+        </div>
+
+        {/* Small screens: wall ring only in the middle row */}
+        <div className="md:hidden">
+          <WallRing
+            live={view.wallCount}
+            total={initialLive(state.config.flowers)}
+            roundWind={view.roundWind}
+            faanMinimum={view.faanMinimum}
+          />
+        </div>
       </div>
 
-      {/* My area */}
-      <div className="flex flex-col items-center gap-2 pb-6">
-        <div className="flex items-center gap-3 text-sm text-emerald-100/90">
-          {SEAT_NAMES[0]} · {view.seatWind}
-          {dealerSeat === 0 && <span className="text-amber-300" title="dealer">◆</span>}
+      {/* Small screens: opponent strips, then pools 2x2 (unrotated) */}
+      <div className="flex justify-center gap-2 md:hidden">
+        <SeatStrip view={view} seat={3} numbered={settings.numberedTiles} dealerSeat={dealerSeat} />
+        <SeatStrip view={view} seat={1} numbered={settings.numberedTiles} dealerSeat={dealerSeat} />
+      </div>
+      <div className="mx-auto grid max-w-full grid-cols-2 justify-items-center gap-x-3 gap-y-2 px-2 md:hidden">
+        {([2, 3, 1, 0] as const).map((seat) => (
+          <div key={seat} className="flex flex-col items-center gap-0.5">
+            <span className="text-[0.6rem] uppercase tracking-wider text-parchment-dim">
+              {view.seatWinds[seat]} pool
+            </span>
+            <DiscardPool view={view} seat={seat} numbered={settings.numberedTiles} />
+          </div>
+        ))}
+      </div>
+
+      {/* My seat */}
+      <div className="flex flex-col items-center gap-2 pb-8">
+        <div className="flex items-center gap-2 text-sm text-parchment-dim">
+          <span className={view.turn === HUMAN ? 'text-accent' : ''} style={{ fontFamily: 'var(--font-tiles)' }}>
+            {WIND_CHARS[view.seatWind]}
+          </span>
+          {dealerSeat === HUMAN && <DealerIcon className="h-3 w-3 text-accent" />}
           <MeldRow melds={view.melds[0]} numbered={settings.numberedTiles} />
           <BonusRow tiles={view.bonus[0]} />
         </div>
-        <div className="flex gap-1 flex-wrap justify-center">
+        <div className={`flex flex-wrap justify-center gap-1 rounded-2xl p-2 transition-shadow duration-(--duration-ui) ${myTurnGlow}`}>
           {view.concealed.map((t, i) => {
             const e = evalFor(t)
             const title = e
-              ? `${e.suggested ? 'Suggested discard — ' : ''}discarding leaves ${
+              ? `${e.suggested ? 'Suggested — ' : ''}leaves ${
                   e.shantenAfter === -1 ? 'a winning hand' : `${e.shantenAfter} shanten`
-                }, ${e.ukeire} live tiles`
+                }, ${e.ukeire} live tiles${e.advancing.length ? ` (${e.advancing.join(' ')})` : ''}`
               : undefined
             return (
               <TileView
@@ -95,7 +148,7 @@ export function GameScreen({ settings, onChangeSettings }: {
                 tile={t}
                 size="lg"
                 numbered={settings.numberedTiles}
-                ring={e?.suggested ? 'suggest' : undefined}
+                state={e?.suggested ? 'highlighted' : 'normal'}
                 title={title}
                 onClick={myDiscardTurn ? () => dispatch({ type: 'discard', seat: HUMAN, tile: t }) : undefined}
               />
@@ -106,10 +159,10 @@ export function GameScreen({ settings, onChangeSettings }: {
         <AnalysisPanel view={view} state={state} byoKey={settings.byoKey || undefined} />
         {state.phase === 'finished' && resultDismissed && (
           <button
-            className="rounded-lg bg-amber-400 px-4 py-2 font-semibold text-amber-950 hover:bg-amber-300 cursor-pointer"
+            className="cursor-pointer rounded-lg bg-accent px-4 py-2 font-semibold text-on-accent transition-colors duration-(--duration-ui) hover:brightness-110"
             onClick={newRound}
           >
-            Next round →
+            Next round
           </button>
         )}
       </div>

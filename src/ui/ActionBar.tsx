@@ -1,12 +1,18 @@
 import type { Action, PlayerView } from '../engine/game'
-import { winDeclarable } from '../engine/fan'
-import { scoreBest } from '../engine/fan'
+import { scoreBest, winDeclarable } from '../engine/fan'
 import { decompose, isWinningHand } from '../engine/win'
-import { glyph, tileName } from '../engine/tiles'
+import { tileName } from '../engine/tiles'
 import { SEAT_NAMES } from './panels'
+import { TileFace } from './tiles/TileFace'
 
 const btn =
-  'px-4 py-2 rounded-lg font-semibold shadow transition-colors disabled:opacity-40 cursor-pointer'
+  'px-4 py-2 rounded-lg font-semibold transition-colors duration-(--duration-ui) disabled:opacity-40 cursor-pointer'
+
+const MiniTile = ({ tile }: { tile: string }) => (
+  <span className="inline-block w-4 align-[-3px]">
+    <TileFace tile={tile} />
+  </span>
+)
 
 export function ActionBar({ view, onAction }: { view: PlayerView; onAction: (a: Action) => void }) {
   const legal = view.legal
@@ -15,8 +21,9 @@ export function ActionBar({ view, onAction }: { view: PlayerView; onAction: (a: 
   const win = legal.find((a) => a.type === 'declareWin')
   const kongs = legal.filter((a) => a.type === 'kong')
 
-  // Teaching moment: the hand is complete but under the faan minimum.
   const myTurnToDiscard = view.phase === 'discard' && view.turn === view.seat
+
+  // Teaching moment: the hand is complete but under the faan minimum.
   let blockedWin: string | null = null
   if (myTurnToDiscard && !win && isWinningHand(view.concealed, view.melds[view.seat])) {
     const fan = scoreBest(decompose(view.concealed, view.melds[view.seat]), {
@@ -33,44 +40,44 @@ export function ActionBar({ view, onAction }: { view: PlayerView; onAction: (a: 
     }
   }
 
-  const status = (() => {
-    if (view.phase === 'finished') return 'Round over'
-    if (view.phase === 'claims') {
-      const from = view.pendingDiscard!.from
-      return claims.length > 0
-        ? `${SEAT_NAMES[from]} discarded ${tileName(view.pendingDiscard!.tile)} — claim it?`
-        : 'Waiting for claims…'
-    }
-    if (myTurnToDiscard) return 'Your turn — pick a tile to discard'
-    return `${SEAT_NAMES[view.turn]} is thinking…`
-  })()
+  const claimPrompt =
+    view.phase === 'claims' && claims.length > 0 && view.pendingDiscard
+      ? `${SEAT_NAMES[view.pendingDiscard.from]} discarded ${tileName(view.pendingDiscard.tile)}`
+      : null
+
+  const hasButtons = Boolean(win) || claims.length > 0 || kongs.length > 0 || Boolean(pass)
 
   return (
-    <div className="flex flex-col items-center gap-2 min-h-20">
-      <p className="text-emerald-100/80 text-sm">{status}</p>
-      {blockedWin && (
-        <p className="text-amber-300 text-sm font-medium max-w-xl text-center">{blockedWin}</p>
+    <div className={`flex flex-col items-center gap-2 ${hasButtons || blockedWin ? 'min-h-16' : 'min-h-6'}`}>
+      {myTurnToDiscard && !blockedWin && (
+        <p className="text-xs text-parchment-dim">your discard</p>
       )}
-      <div className="flex gap-2 flex-wrap justify-center">
+      {claimPrompt && <p className="text-sm text-parchment">{claimPrompt} — claim it?</p>}
+      {blockedWin && <p className="max-w-xl text-center text-sm font-medium text-consider">{blockedWin}</p>}
+      <div className="flex flex-wrap justify-center gap-2">
         {win && (
-          <button className={`${btn} bg-amber-400 text-amber-950 hover:bg-amber-300`} onClick={() => onAction(win)}>
+          <button className={`${btn} bg-accent text-on-accent hover:brightness-110`} onClick={() => onAction(win)}>
             Win! 食糊
           </button>
         )}
         {claims.map((a, i) => {
           if (a.type !== 'claim') return null
           const label =
-            a.claim === 'win'
-              ? 'Win! 食糊'
-              : a.claim === 'pung'
-                ? 'Pung 碰'
-                : a.claim === 'kong'
-                  ? 'Kong 槓'
-                  : `Chow 上 ${a.claim.chow.map(glyph).join('')}`
+            a.claim === 'win' ? (
+              <>Win! 食糊</>
+            ) : a.claim === 'pung' ? (
+              <>Pung 碰</>
+            ) : a.claim === 'kong' ? (
+              <>Kong 槓</>
+            ) : (
+              <>
+                Chow 上 {a.claim.chow.map((t) => <MiniTile key={t} tile={t} />)}
+              </>
+            )
           const cls =
             a.claim === 'win'
-              ? 'bg-amber-400 text-amber-950 hover:bg-amber-300'
-              : 'bg-emerald-200 text-emerald-950 hover:bg-emerald-100'
+              ? 'bg-accent text-on-accent hover:brightness-110'
+              : 'bg-ivory text-ink hover:bg-ivory-bright'
           return (
             <button key={i} className={`${btn} ${cls}`} onClick={() => onAction(a)}>
               {label}
@@ -81,15 +88,18 @@ export function ActionBar({ view, onAction }: { view: PlayerView; onAction: (a: 
           a.type === 'kong' ? (
             <button
               key={`k${i}`}
-              className={`${btn} bg-emerald-200 text-emerald-950 hover:bg-emerald-100`}
+              className={`${btn} bg-ivory text-ink hover:bg-ivory-bright`}
               onClick={() => onAction(a)}
             >
-              Kong 槓 {glyph(a.tile)}
+              Kong 槓 <MiniTile tile={a.tile} />
             </button>
           ) : null,
         )}
         {pass && (
-          <button className={`${btn} bg-emerald-800 text-emerald-100 hover:bg-emerald-700`} onClick={() => onAction(pass)}>
+          <button
+            className={`${btn} bg-felt-light/70 text-parchment hover:bg-felt-light`}
+            onClick={() => onAction(pass)}
+          >
             Pass
           </button>
         )}

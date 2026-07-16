@@ -9,6 +9,7 @@ import { TileBack, TileFace } from './tiles/TileFace'
 export type TileState = 'normal' | 'dimmed' | 'highlighted' | 'safe' | 'danger' | 'selected'
 
 const SIZES = {
+  xs: 'w-5',
   sm: 'w-7',
   md: 'w-10',
   lg: 'w-14',

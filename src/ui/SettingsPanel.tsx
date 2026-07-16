@@ -1,10 +1,12 @@
 import type { Difficulty } from '../engine/bots'
 import type { Seat } from '../engine/types'
+import { CloseIcon } from './icons'
 import { SEAT_NAMES } from './panels'
 import type { Settings } from './useGame'
 
 const row = 'flex items-center justify-between gap-3 py-1.5'
-const select = 'rounded bg-emerald-800 px-2 py-1 text-sm text-emerald-50 border border-emerald-600'
+const select = 'rounded-lg bg-felt-light px-2 py-1 text-sm text-parchment border border-felt-line'
+const heading = 'mt-4 text-xs uppercase tracking-wide text-parchment-dim'
 
 export function SettingsPanel({ settings, onChange, onClose }: {
   settings: Settings
@@ -14,15 +16,17 @@ export function SettingsPanel({ settings, onChange, onClose }: {
   return (
     <div className="fixed inset-0 z-30 flex justify-end bg-black/40" onClick={onClose}>
       <div
-        className="h-full w-80 overflow-y-auto bg-emerald-950 border-l border-emerald-700 p-5 text-emerald-50"
+        className="h-full w-80 overflow-y-auto border-l border-felt-line bg-felt-deep p-5 text-parchment shadow-panel"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold">Settings</h2>
-          <button className="text-emerald-300 hover:text-white cursor-pointer" onClick={onClose}>✕</button>
+          <h2 className="font-serif text-lg font-bold">Settings</h2>
+          <button className="cursor-pointer text-parchment-dim hover:text-parchment" onClick={onClose} aria-label="close settings">
+            <CloseIcon />
+          </button>
         </div>
 
-        <h3 className="mt-4 text-xs uppercase tracking-wide text-emerald-300/70">Rules (next round)</h3>
+        <h3 className={heading}>Rules (next round)</h3>
         <div className={row}>
           <label htmlFor="faan-min">Minimum faan</label>
           <select
@@ -46,7 +50,7 @@ export function SettingsPanel({ settings, onChange, onClose }: {
           />
         </div>
 
-        <h3 className="mt-4 text-xs uppercase tracking-wide text-emerald-300/70">Bots (next round)</h3>
+        <h3 className={heading}>Bots (next round)</h3>
         {([1, 2, 3] as Seat[]).map((seat) => (
           <div className={row} key={seat}>
             <label htmlFor={`diff-${seat}`}>{SEAT_NAMES[seat]}</label>
@@ -68,9 +72,9 @@ export function SettingsPanel({ settings, onChange, onClose }: {
           </div>
         ))}
 
-        <h3 className="mt-4 text-xs uppercase tracking-wide text-emerald-300/70">Display (immediate)</h3>
+        <h3 className={heading}>Display (immediate)</h3>
         <div className={row}>
-          <label htmlFor="numbered">Numbered tiles</label>
+          <label htmlFor="numbered">Rank overlay on tiles</label>
           <input
             id="numbered"
             type="checkbox"
@@ -87,9 +91,12 @@ export function SettingsPanel({ settings, onChange, onClose }: {
             onChange={(e) => onChange({ ...settings, beginnerAids: e.target.checked })}
           />
         </div>
-        <h3 className="mt-4 text-xs uppercase tracking-wide text-emerald-300/70">AI coach</h3>
+
+        <h3 className={heading}>AI coach</h3>
         <div className="py-1.5">
-          <label htmlFor="byo-key" className="block">Use my own API key <span className="text-emerald-400/60">(optional)</span></label>
+          <label htmlFor="byo-key" className="block">
+            Use my own API key <span className="text-parchment-dim">(optional)</span>
+          </label>
           <input
             id="byo-key"
             type="password"
@@ -97,13 +104,13 @@ export function SettingsPanel({ settings, onChange, onClose }: {
             placeholder="held in memory only"
             value={settings.byoKey}
             onChange={(e) => onChange({ ...settings, byoKey: e.target.value })}
-            className="mt-1 w-full rounded border border-emerald-600 bg-emerald-800 px-2 py-1 font-mono text-sm"
+            className="mt-1 w-full rounded-lg border border-felt-line bg-felt-light px-2 py-1 font-mono text-sm placeholder:text-parchment-dim/60"
           />
-          <p className="mt-1 text-xs text-emerald-300/60">
+          <p className="mt-1 text-xs text-parchment-dim">
             Skips the shared rate limit. Never saved, never logged — it lives in this tab's memory only.
           </p>
         </div>
-        <p className="mt-3 text-xs text-emerald-300/60">
+        <p className="mt-3 text-xs text-parchment-dim">
           Rule and bot changes take effect when the next round is dealt.
         </p>
       </div>

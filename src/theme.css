@@ -79,6 +79,58 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* A discarded tile slides in and settles: decelerate, tiny overshoot, still. */
+@keyframes tile-settle {
+  0% {
+    transform: translateY(-10px) scale(1.05);
+    opacity: 0.4;
+  }
+  70% {
+    transform: translateY(1.5px) scale(0.995);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+.tile-settle {
+  animation: tile-settle var(--duration-settle) var(--ease-settle) both;
+}
+
+/* The newest discard carries a soft ring for one beat, then rests. */
+@keyframes discard-beat {
+  0%,
+  60% {
+    outline: 2px solid color-mix(in srgb, var(--color-ivory-bright) 70%, transparent);
+    outline-offset: 1px;
+  }
+  100% {
+    outline: 2px solid transparent;
+  }
+}
+.discard-beat {
+  animation: discard-beat 900ms var(--ease-settle) both;
+  border-radius: 8%;
+}
+
+/* Whose turn it is — the one thing gold means. */
+.seat-glow {
+  box-shadow: 0 0 26px color-mix(in srgb, var(--color-accent) 38%, transparent);
+}
+/* Bot thinking: the glow breathes gently (opacity only, never scale). */
+@keyframes seat-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 18px color-mix(in srgb, var(--color-accent) 24%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 30px color-mix(in srgb, var(--color-accent) 44%, transparent);
+  }
+}
+.seat-breathe {
+  animation: seat-breathe 2.4s ease-in-out infinite;
+}
+
 /* The felt: a real table under a warm hanging bulb — light falls from
    above-centre, edges vignette away, fine grain at whisper opacity. */
 .felt-surface {
