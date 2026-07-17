@@ -116,7 +116,9 @@ Decisions the spec left open (details in `docs/superpowers/specs/`):
   wind/dragon pungs they contain.
 - **No point settlement** — the scoreboard tracks cumulative faan (it's a
   teaching tool); who-pays-whom is out of scope for Phase 1.
-- **Robbing the kong** is not implemented.
+- **Robbing the kong** (搶槓) *is* implemented as of Phase 2: an added kong
+  opens a win-only claim window before it completes; a concealed kong is not
+  robbable. (Phase 1 did not implement it — noted here for history.)
 - The dead wall is positional (last 14 tiles) and not replenished.
 
 ## Tests

@@ -25,6 +25,8 @@ export function fullSet(): TileId[] {
  * Build a game with exact hands. `hands` are 13 tiles per seat in SEAT ORDER
  * FROM THE DEALER; `dealerExtra` is the dealer's 14th. `drawOrder` (optional)
  * pins the first live-wall draws; everything else follows deterministically.
+ * `liveWallAfterDeal` (optional) truncates the wall so exactly that many
+ * live draws remain after the deal (the dead wall stays intact).
  */
 export function craftedGame(opts: {
   rules?: RuleConfig
@@ -32,10 +34,12 @@ export function craftedGame(opts: {
   handsFromDealer: [TileId[], TileId[], TileId[], TileId[]]
   dealerExtra: TileId
   drawOrder?: TileId[]
+  liveWallAfterDeal?: number
 }): GameState {
   const rules = opts.rules ?? NO_FLOWER_RULES
   const dealer = opts.dealer ?? 0
-  const used = [...opts.handsFromDealer.flat(), opts.dealerExtra, ...(opts.drawOrder ?? [])]
+  const drawOrder = opts.drawOrder ?? []
+  const used = [...opts.handsFromDealer.flat(), opts.dealerExtra, ...drawOrder]
 
   const pool = fullSet()
   for (const t of used) {
@@ -47,8 +51,72 @@ export function craftedGame(opts: {
     if (h.length !== 13) throw new Error('craftedGame: each hand needs exactly 13 tiles')
   }
 
-  const wall = [...opts.handsFromDealer.flat(), opts.dealerExtra, ...(opts.drawOrder ?? []), ...pool]
+  let rest = [...drawOrder, ...pool]
+  if (opts.liveWallAfterDeal !== undefined) {
+    const DEAD_WALL = 14
+    const size = opts.liveWallAfterDeal + DEAD_WALL
+    if (size > rest.length) throw new Error('craftedGame: not enough tiles left for that wall')
+    rest = rest.slice(0, size)
+  }
+  const wall = [...opts.handsFromDealer.flat(), opts.dealerExtra, ...rest]
   return createGameWithWall(rules, wall, dealer, 'E')
+}
+
+/**
+ * Hand-built mid-game state for robbing-the-kong scenarios: seat 1 is mid
+ * turn holding the 4th p5; seat 2 either waits on p5 (p4p6 run wait) or
+ * holds junk. style 'added' gives seat 1 an exposed pung of p5; 'concealed'
+ * gives seat 1 all four p5 in hand.
+ */
+export function robKongState(opts: { style: 'added' | 'concealed'; robberCanWin: boolean }): GameState {
+  const seat1Hand: TileId[] =
+    opts.style === 'added'
+      ? ['p5', 'm1', 'm1', 'm2', 'm2', 'm3', 'm3', 's7', 's8', 's9', 'wN']
+      : ['p5', 'p5', 'p5', 'p5', 'm1', 'm1', 'm2', 'm2', 'm3', 'm3', 's7', 's8', 'wN', 'wN']
+  const robber: TileId[] = opts.robberCanWin
+    ? ['p4', 'p6', 'm7', 'm8', 'm9', 's1', 's2', 's3', 'wW', 'wW', 'p1', 'p2', 'p3']
+    : ['p9', 'p9', 's5', 's5', 's6', 's6', 'wW', 'wW', 'dW', 'dW', 'm8', 'm8', 'wS']
+  const hands: Record<Seat, TileId[]> = {
+    0: ['wE', 'wE', 'm4', 'm4', 's4', 's4', 'p8', 'p8', 'dR', 'dR', 'm6', 'm6', 'dG'],
+    1: seat1Hand,
+    2: robber,
+    3: ['m5', 'm5', 'p7', 'p7', 'wS', 'wS', 'dW', 'dW', 's5', 's6', 'dG', 'wN', 'wN'],
+  }
+  const melds: Record<Seat, GameState['melds'][Seat]> = {
+    0: [],
+    1:
+      opts.style === 'added'
+        ? [{ type: 'pung', tiles: ['p5', 'p5', 'p5'], concealed: false, claimedFrom: 0 }]
+        : [],
+    2: [],
+    3: [],
+  }
+
+  const pool = fullSet()
+  for (const t of [...Object.values(hands).flat(), ...melds[1].flatMap((m) => m.tiles)]) {
+    const i = pool.indexOf(t)
+    if (i < 0) throw new Error(`robKongState: more than four copies of ${t}`)
+    pool.splice(i, 1)
+  }
+
+  return {
+    config: NO_FLOWER_RULES,
+    wall: pool.slice(0, 30),
+    hands: structuredClone(hands),
+    melds: structuredClone(melds),
+    bonus: { 0: [], 1: [], 2: [], 3: [] },
+    discards: { 0: [], 1: [], 2: [], 3: [] },
+    turn: 1,
+    phase: 'discard',
+    pendingDiscard: null,
+    claims: {},
+    lastDraw: { seat: 1, tile: seat1Hand[0], kongReplacement: false, lastWallTile: false },
+    lastClaimed: null,
+    roundWind: 'E',
+    seatWinds: { 0: 'E', 1: 'S', 2: 'W', 3: 'N' },
+    log: [],
+    result: null,
+  }
 }
 
 /** A dealer hand that is a complete win the moment it is dealt (all pungs). */
