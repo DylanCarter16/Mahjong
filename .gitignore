@@ -6,3 +6,6 @@ dist/
 
 # wrangler local dev state
 .wrangler/
+
+# TS incremental build info
+tsconfig.tsbuildinfo

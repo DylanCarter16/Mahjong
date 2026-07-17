@@ -1,41 +1,66 @@
 # Mahjong — Play + Learn 🀄
 
-A client-only web app for learning **Hong Kong mahjong**: play full rounds against
-three bots, work through a Duolingo-style lesson track, and drill the two skills
-beginners struggle with most — tile efficiency and reading the discard pool. An
-optional AI coach (bring your own Anthropic API key) analyses your hand mid-round
+A web app for learning **Hong Kong mahjong**: play full rounds against three bots,
+play **cross-device multiplayer** with 2–4 humans (empty seats filled by bots),
+work through a Duolingo-style lesson track, and drill the two skills beginners
+struggle with most — tile efficiency and reading the discard pool. An optional AI
+coach (shared, or bring your own Anthropic API key) analyses your hand mid-round
 and reviews the round afterwards.
 
 Built for a player learning to play with family who use a **0 faan minimum** —
-the minimum is configurable (0 / 1 / 3, default 3) and the "your hand is complete
-but you can't declare it" moment is taught explicitly.
+the minimum is configurable (0 / 1 / 3) and the "your hand is complete but you
+can't declare it" moment is taught explicitly.
+
+**Single-player stays fully local and fully offline** — solo games and lessons
+run with no network at all. Multiplayer is the same game engine behind an
+authoritative server; the browser only ever sees its own seat's view.
 
 ## Quick start
 
 ```bash
 npm install
-npm run dev      # dev server
-npm test         # run the whole test suite (Vitest)
-npm run build    # typecheck + production build
+npm run dev       # front-end dev server (Vite)
+npm test          # the whole test suite (Vitest) — engine, room, proxy, parity
+npm run build     # typecheck + production build
+npm run typecheck # tsc for both the app and the server package
 ```
 
-Node LTS. No backend, no storage, no env vars. The Anthropic key (if you use the
-AI coach) is typed into the UI at runtime and held in component memory only.
+Node LTS. Solo play and lessons need **no backend, no storage, no env vars** —
+the app runs where browser storage is unavailable, and the Anthropic key (if you
+use the AI coach) is typed into the UI at runtime and held in component memory
+only.
+
+**Multiplayer** additionally needs the game server running (a Cloudflare Worker +
+Durable Objects — see [Multiplayer server](#multiplayer-server-server)) and the
+front end pointed at it via `VITE_GAME_SERVER`:
+
+```bash
+npm run server:dev                              # game server on :8787 (workerd)
+VITE_GAME_SERVER=http://localhost:8787 npm run dev
+npm run smoke:server                            # gate: two clients in a lobby
+```
 
 ## How the pieces fit
 
 ```
 src/
-  engine/     pure TypeScript, zero React imports, fully unit-tested
-  ui/         React components; renders engine state, dispatches engine actions
-  lessons/    lesson units + the two drills; validates ONLY via engine calls
-  analysis/   Anthropic API wrapper (fetch, fallback model, rate-limited)
+  engine/     pure TypeScript, zero React imports, fully unit-tested — the rules
+  room/       transport-agnostic room orchestration (RoomRunner, RoomHost,
+              LocalTransport, protocol, clock, room codes/tokens) — no React,
+              no sockets; the same code drives solo and multiplayer
+  net/        browser multiplayer client (WebSocket ClientConn + reconnect)
+  ui/         React components; render a PlayerView, dispatch engine actions
+  lessons/    lesson units + the two drills; validate ONLY via engine calls
+  analysis/   Anthropic proxy client (fetch, fallback model, rate-limited)
+api/          Vercel functions: the coach/review proxy (holds the key)
+server/       Cloudflare Worker + Durable Objects: the multiplayer game server
 ```
 
-The engine is the single source of truth. The UI holds a `GameState` in a
-`useReducer`-style hook and renders from `playerView(state, seat)`; bots receive
-the same `PlayerView` and nothing else. Lessons never re-implement a rule — if a
-drill needs to know whether a hand wins, it calls `isWinningHand`.
+The engine is the single source of truth. Both solo and multiplayer run the same
+`RoomRunner` over a `Transport` interface (§ [Multiplayer](#multiplayer)); the UI
+renders from `playerView(state, seat)` and never sees another seat's tiles. Bots
+receive the same `PlayerView` and nothing else. Lessons never re-implement a rule
+— if a drill needs to know whether a hand wins, it calls `isWinningHand`.
 
 ### Tile notation
 
@@ -71,6 +96,86 @@ claim what. Priority: **win > pung/kong > chow**; multiple winners resolve in
 seat order from the discarder; chow is only offered to the next seat. This is
 deliberately the same shape as a timed multiplayer claim window.
 
+## Multiplayer
+
+2–4 humans on different devices play one game; empty seats are filled by bots.
+Room-code entry, no accounts. The design decision and its trade-offs are written
+up in `docs/superpowers/specs/` — the short version:
+
+**One runner, two transports.** The rules live in `engine/` (unchanged). A
+transport-agnostic, clock-injected `RoomRunner` orchestrates a room — seats, the
+turn cycle, claim windows, timers, bot invocation — and talks to seats only
+through a `Transport` interface. Solo play uses `LocalTransport` (in-memory, no
+network, works offline on a bus). Multiplayer uses a WebSocket transport on the
+server. The same runner drives both, and a **parity test** (`src/room/__tests__/
+parity.test.ts`) proves the two paths produce byte-identical results from the
+same seed — the guard against drift.
+
+**Transport choice: Cloudflare Durable Objects.** One room = one DO instance:
+single-threaded (so authority is inherent), stateful in memory, WebSocket-native
+with hibernation, scales to zero. `GameState` is one flat JSON blob and the RNG
+is spent at the deal, so a room serializes and rehydrates trivially — the DO
+write-throughs a snapshot after every change, and deploys/evictions recover
+through the same reconnect path phones exercise constantly.
+
+**Security properties (each has a test):**
+
+- **The server is the only authority.** Clients send *intents*; the server
+  validates against `legalActions` and applies or rejects. A modified client
+  can't do anything illegal.
+- **Hidden information never leaves the server.** Each client receives only its
+  own `PlayerView` — never another seat's tiles, the wall, or the dead wall. The
+  **leak test** (`src/room/__tests__/leak.test.ts`) captures every payload sent
+  to a seat across a full game and proves no hidden tile appears; it's
+  mutation-checked and deliberately hard to weaken.
+- **The seed is a secret.** Production walls are seeded from `crypto`
+  server-side; the seed and the wall array never leave the server, never get
+  logged.
+- **Bots run server-side.** A modified client can't be a cheating bot with full
+  information.
+
+**Claim windows.** After a discard, claims are collected across the whole window
+and resolved by rule priority (**win > pung/kong > chow**; ties by seat order
+from the discarder) — never by arrival order, so a fast connection can't beat a
+slow one to a contested tile. Latency only affects whether your claim lands at
+all. Robbing the kong (搶槓) gets its own win-only window.
+
+**Disconnects & reconnect (the PWA common path).** Backgrounding a phone kills
+the socket, so reconnect is normal, not an edge case: a 60s grace shows the seat
+as "reconnecting", then it flips to a bot (also on two consecutive turn
+timeouts); presenting the seat token replays the current view and hands control
+back. Bot decisions stand.
+
+### Multiplayer server (`server/`)
+
+A Cloudflare Worker routes room requests to per-room Durable Objects.
+
+```bash
+npm run server:dev      # run locally on workerd (wrangler dev)
+npm run server:deploy   # deploy to Cloudflare
+npm run server:tail     # stream logs (your 2am window)
+npm run smoke:server    # Phase-3 gate: two clients in a lobby, tokens, no game
+npm run smoke:game      # a full 1-human + 3-bot game over a real socket
+npm run smoke:reconnect # background/foreground a phone mid-game, come back clean
+```
+
+Config lives in `server/wrangler.jsonc`. Environment:
+
+| Name | Where | Purpose |
+| --- | --- | --- |
+| `VITE_GAME_SERVER` | front-end build/dev env | URL of the game server the browser opens a socket to (e.g. your `*.workers.dev`). Unset ⇒ `http://localhost:8787`. |
+| `ALLOWED_ORIGINS` | worker `vars` | comma-separated browser origins allowed to connect. Empty ⇒ allow any (dev posture; set your front-end origin in production). |
+| `ADMIN_KEY` | worker **secret** | gates the `/debug` state dump and `/reset` escape hatches. Unset ⇒ those routes are disabled. Set with `npx wrangler secret put ADMIN_KEY -c server/wrangler.jsonc`. |
+| `ANTHROPIC_API_KEY` | the **coach proxy** (Vercel), not the game server | the shared coach key. The game server never touches it — the two systems are separate on purpose. |
+
+The front end deploys as today (Vercel/static). The coach proxy stays on Vercel
+functions (`api/`). Only the sockets live on Cloudflare, so two providers — the
+front end + coach on one, the game server on the other.
+
+**Debugging a stuck room at 2am:** `npm run server:tail` for logs;
+`GET /api/rooms/<CODE>/debug` (with `x-admin-key`) dumps the room's full
+server-side state; `POST /api/rooms/<CODE>/reset` (same header) tears it down.
+
 ## Bots — honest strength note
 
 The advanced bot is **strong-heuristic play, not superhuman**: shanten
@@ -92,13 +197,22 @@ app runs where browser storage is unavailable).
 - **Discard-reading quiz** — real mid-game positions from seeded bot games:
   which suit is an opponent short on, and which of your tiles is safest.
 
-## AI coach (`src/analysis`)
+## AI coach (`src/analysis`, `api/`)
 
-Paste an Anthropic API key into the panel (memory only). Two actions, both
-rate-limited and error-safe: **Analyse my hand** (realistic faan target, best
-discard, one defensive note) and **Review that round** (three improvements tied
-to specific turns from the action log). Uses `claude-fable-5`, falls back to
-`claude-opus-4-8` on error or refusal.
+Two actions, both rate-limited and error-safe: **Analyse my hand** (realistic
+faan target, best discard, one defensive note) and **Review that round** (three
+improvements tied to specific turns from the action log). Coach requests
+originate client-side and hit the proxy directly; the game server never touches
+the key. The prompt is built server-side from a validated `PlayerView` — no
+client-supplied prompt/model/messages.
+
+In multiplayer the coach is exposed to strangers spending the host's key, so:
+it's a **host setting** (default on, shown in the lobby rule summary and visible
+to the room); the proxy rate-limits **per room** as well as per IP; and the
+**bring-your-own-key** hatch is surfaced in the lobby (memory only, never saved,
+never sent to the game server) to skip the shared limit. When the coach is off,
+the **local ranked-discard table** — computed by the engine, free and instant —
+still shows. Uses `claude-fable-5`, falls back to `claude-opus-4-8`.
 
 ## Rules implemented & documented decisions
 
@@ -123,14 +237,33 @@ Decisions the spec left open (details in `docs/superpowers/specs/`):
 
 ## Tests
 
-96 tests cover the engine gates (decomposition, faan exclusivity, shanten,
-scripted full rounds on rigged walls, bot legality fuzzing over complete seeded
-games) plus drill generators and prompt serialisation. The engine test suite is
-the correctness signal for the whole app — the UI renders engine state and
-dispatches engine actions, nothing more.
+`npm test` runs the whole suite (177 tests). Highlights:
+
+- **Engine** — decomposition, faan exclusivity, shanten, claim priority
+  (incl. pung-beats-chow and robbing the kong), scripted full rounds on rigged
+  walls, bot-legality fuzzing over complete seeded games.
+- **Room** — RoomRunner/RoomHost with a fake clock; the **leak test** (no hidden
+  tile ever reaches a client); claim-window mechanics (skip-empty, collect-then-
+  resolve, timeout=pass, all-bots-instant, illegal→reject+pass+log); turn
+  timers, disconnect grace, bot takeover, reconnect, background/foreground.
+- **Parity** — a full scripted 4-player game and **local-vs-network transport
+  parity**: the same seed over `LocalTransport` and a JSON-serialising network
+  sim must produce byte-identical output. Mutation-checked.
+- **Proxy** — request validation, prompt-injection resistance, per-IP and
+  per-room rate limits.
+
+No `setTimeout`/sleeps in tests — the clock is injected. The engine and room
+suites are the correctness signal for the whole app; the UI just renders a
+`PlayerView` and dispatches actions.
+
+`npm run verify:ui` drives the real app in a browser (mobile viewport) as a
+self-check: menu → solo → create → lobby → table, asserting a11y labels, ≥44px
+touch targets, and no console errors. (Needs `playwright-core` + a Chromium.)
 
 ## Roadmap
 
-Phase 2 (specced, not built): 2–4 humans across devices with bot fill-ins —
-authoritative server running this exact engine, `PlayerView` per client, timed
-claim windows, reconnect from the action log.
+Phase 2 (**shipped**): cross-device multiplayer — authoritative Durable-Object
+server running this exact engine, a `PlayerView` per client, timed claim
+windows, disconnect→bot→reconnect. Not yet: spectators, chat, multi-round
+scoring across a full game of four winds (single rounds land first), accounts /
+matchmaking (room codes are enough).

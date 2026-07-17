@@ -16,6 +16,8 @@
     "server:deploy": "wrangler deploy -c server/wrangler.jsonc",
     "server:tail": "wrangler tail -c server/wrangler.jsonc",
     "smoke:server": "node scripts/smoke-server.mjs",
+    "smoke:game": "node scripts/smoke-game.mjs",
+    "smoke:reconnect": "node scripts/smoke-reconnect.mjs",
     "verify:ui": "node scripts/verify-ui.mjs"
   },
   "dependencies": {
