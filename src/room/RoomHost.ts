@@ -9,9 +9,10 @@
 // is the only way to reclaim a seat. Host powers belong to hostSeat.
 
 import type { Difficulty } from '../engine/bots'
+import type { GameState } from '../engine/game'
 import type { Seat } from '../engine/types'
 import { SEATS } from '../engine/types'
-import type { Clock } from './clock'
+import type { Clock, TimerHandle } from './clock'
 import {
   DEFAULT_HOUSE_RULES,
   sanitizeHouseRules,
@@ -40,7 +41,18 @@ interface SeatState {
   name: string | null
   difficulty: Difficulty
   connected: boolean
+  /**
+   * A human seat currently piloted by a bot (§6): disconnect grace lapsed or
+   * two turns timed out. Its identity stays human — the token still reclaims
+   * it — but the runner is auto-playing it until the human returns.
+   */
+  piloted: boolean
 }
+
+/** Disconnect grace before a seat flips to bot control (§6). */
+const GRACE_MS = 60_000
+/** Consecutive turn timeouts that trigger the same flip (§6). */
+const TIMEOUT_TAKEOVER = 2
 
 /** Plain-data snapshot for the shell's write-through storage. */
 export interface RoomHostSnapshot {
@@ -63,6 +75,9 @@ export interface RoomHostOptions {
   /** Write-through hook: the shell persists a snapshot after every change. */
   onDirty?: () => void
   rules?: HouseRules
+  /** Test affordance: start the game from a crafted state (threaded to the
+   * runner). Never set in production — games start from a secret seed. */
+  initialGame?: GameState
 }
 
 const DEFAULT_BOT_DIFFICULTY: Difficulty = 'intermediate'
@@ -73,6 +88,7 @@ export class RoomHost {
   private rules: HouseRules
   private seats: Record<Seat, SeatState>
   private runner: RoomRunner | null = null
+  private graceTimers: Partial<Record<Seat, TimerHandle>> = {}
   private readonly code: string
   private readonly logIssue: (msg: string) => void
 
@@ -115,10 +131,18 @@ export class RoomHost {
   /** Re-arm timers after a restore (idempotent, mirrors RoomRunner.start). */
   resume(): void {
     this.runner?.start()
+    // A human whose socket didn't survive the eviction is on the clock: if
+    // they don't reconnect within grace, their seat flips to a bot (§6).
+    for (const s of SEATS) {
+      if (this.seats[s].kind === 'human' && !this.seats[s].connected && !this.seats[s].piloted) {
+        this.armGrace(s)
+      }
+    }
   }
 
   stop(): void {
     this.runner?.stop()
+    for (const s of SEATS) this.clearGrace(s)
   }
 
   // ------------------------------------------------------------- joining ----
@@ -133,7 +157,13 @@ export class RoomHost {
     if (this.phase === 'playing') return { ok: false, reason: 'game already started' }
     const seat = SEATS.find((s) => this.seats[s].kind === 'open')
     if (seat === undefined) return { ok: false, reason: 'room is full' }
-    this.seats[seat] = { kind: 'human', name, difficulty: DEFAULT_BOT_DIFFICULTY, connected: true }
+    this.seats[seat] = {
+      kind: 'human',
+      name,
+      difficulty: DEFAULT_BOT_DIFFICULTY,
+      connected: true,
+      piloted: false,
+    }
     if (SEATS.every((s) => s === seat || this.seats[s].kind !== 'human')) {
       this.hostSeat = seat
     }
@@ -141,18 +171,64 @@ export class RoomHost {
     return { ok: true, seat }
   }
 
-  /** Socket-level presence, reported by the shell. */
+  /**
+   * Socket-level presence, reported by the shell. A drop starts the grace
+   * clock; a return within grace cancels it and hands control back if the
+   * seat had already flipped to a bot (§6).
+   */
   setConnected(seat: Seat, connected: boolean): void {
     if (this.seats[seat].kind !== 'human') return
     if (this.seats[seat].connected === connected) return
     this.seats[seat].connected = connected
+    if (connected) {
+      this.handBack(seat) // cancels grace, un-pilots if needed
+    } else if (!this.seats[seat].piloted) {
+      this.armGrace(seat)
+    }
     this.afterRoomChange()
   }
 
-  /** Reconnect: mark present and replay current game state to that seat. */
+  /** Reconnect: mark present, hand control back, and replay state (§6). */
   onReconnect(seat: Seat): void {
     this.setConnected(seat, true)
     this.runner?.resend(seat)
+  }
+
+  // ------------------------------------------------------- bot takeover ----
+
+  private armGrace(seat: Seat): void {
+    this.clearGrace(seat)
+    this.graceTimers[seat] = this.opts.clock.setTimeout(() => {
+      delete this.graceTimers[seat]
+      this.pilot(seat)
+    }, GRACE_MS)
+  }
+
+  private clearGrace(seat: Seat): void {
+    const t = this.graceTimers[seat]
+    if (t) {
+      this.opts.clock.clearTimeout(t)
+      delete this.graceTimers[seat]
+    }
+  }
+
+  /** Flip a human seat to bot control at the room's default difficulty. */
+  private pilot(seat: Seat): void {
+    const st = this.seats[seat]
+    if (st.kind !== 'human' || st.piloted) return
+    st.piloted = true
+    this.clearGrace(seat)
+    this.runner?.setSeatController(seat, { kind: 'bot', difficulty: st.difficulty })
+    this.afterRoomChange()
+  }
+
+  /** Return a piloted seat to its human. Bot decisions already made stand. */
+  private handBack(seat: Seat): void {
+    const st = this.seats[seat]
+    this.clearGrace(seat)
+    if (st.kind !== 'human' || !st.piloted) return
+    st.piloted = false
+    this.runner?.setSeatController(seat, { kind: 'human' })
   }
 
   /** True when no human seat has a live socket (shell uses this for GC). */
@@ -233,7 +309,7 @@ export class RoomHost {
     }
     if (msg.kind === 'bot') {
       const difficulty = isDifficulty(msg.difficulty) ? msg.difficulty : DEFAULT_BOT_DIFFICULTY
-      this.seats[msg.seat] = { kind: 'bot', name: null, difficulty, connected: true }
+      this.seats[msg.seat] = { kind: 'bot', name: null, difficulty, connected: true, piloted: false }
     } else {
       this.seats[msg.seat] = emptySeat()
     }
@@ -252,7 +328,13 @@ export class RoomHost {
     // Empty seats are filled by bots (spec §0).
     for (const s of SEATS) {
       if (this.seats[s].kind === 'open') {
-        this.seats[s] = { kind: 'bot', name: null, difficulty: DEFAULT_BOT_DIFFICULTY, connected: true }
+        this.seats[s] = {
+          kind: 'bot',
+          name: null,
+          difficulty: DEFAULT_BOT_DIFFICULTY,
+          connected: true,
+          piloted: false,
+        }
       }
     }
     this.phase = 'playing'
@@ -276,7 +358,12 @@ export class RoomHost {
       ...(this.opts.botSeed ? { botSeed: this.opts.botSeed } : {}),
       logIssue: this.logIssue,
       onChange: () => this.opts.onDirty?.(),
+      onTurnTimeout: (s: Seat, consecutive: number) => {
+        // Two AFK turns in a row → the seat flips to a bot (§6).
+        if (consecutive >= TIMEOUT_TAKEOVER) this.pilot(s)
+      },
       dealer: this.hostSeat,
+      ...(this.opts.initialGame ? { initialGame: this.opts.initialGame } : {}),
     }
   }
 
@@ -285,7 +372,7 @@ export class RoomHost {
     for (const s of SEATS) {
       const seat = this.seats[s]
       out[s] =
-        seat.kind === 'human'
+        seat.kind === 'human' && !seat.piloted
           ? { kind: 'human' }
           : { kind: 'bot', difficulty: seat.difficulty }
     }
@@ -298,7 +385,13 @@ export class RoomHost {
     const seats = {} as Record<Seat, SeatInfo>
     for (const s of SEATS) {
       const st = this.seats[s]
-      seats[s] = { kind: st.kind, name: st.name, difficulty: st.difficulty, connected: st.connected }
+      seats[s] = {
+        kind: st.kind,
+        name: st.name,
+        difficulty: st.difficulty,
+        connected: st.connected,
+        status: seatStatus(st),
+      }
     }
     return {
       code: this.code,
@@ -324,7 +417,15 @@ export class RoomHost {
 }
 
 function emptySeat(): SeatState {
-  return { kind: 'open', name: null, difficulty: DEFAULT_BOT_DIFFICULTY, connected: false }
+  return { kind: 'open', name: null, difficulty: DEFAULT_BOT_DIFFICULTY, connected: false, piloted: false }
+}
+
+/** What the table UI shows next to each seat (§7). */
+function seatStatus(st: SeatState): SeatInfo['status'] {
+  if (st.kind === 'open') return 'open'
+  if (st.kind === 'bot') return 'bot'
+  if (st.piloted) return 'bot' // human seat currently bot-piloted
+  return st.connected ? 'connected' : 'reconnecting'
 }
 
 function sanitizeName(raw: string): string {

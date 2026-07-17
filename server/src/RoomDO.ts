@@ -7,8 +7,18 @@
 //     deploy or eviction mid-game recovers through the same reconnect path
 //     phones exercise constantly. Snapshots contain the wall — they are
 //     server-side only and never leave this object.
-//   - Alarms: one real alarm multiplexed over a persisted deadline table
-//     (today: room GC; claim windows and turn timers arm theirs later).
+//   - Alarms: one real alarm multiplexed over a persisted deadline table.
+//
+// Timer model (§6). Gameplay timers — bot pacing, claim windows, turn
+// timers, disconnect grace — run on the in-memory clock inside RoomHost/
+// RoomRunner. They are re-armed from persisted state on every restore()
+// (resume() re-arms grace for still-absent humans), so an eviction mid-game
+// recovers on the next socket event. Deadlines that must fire with NO
+// incoming traffic — room GC — use the durable DO alarm instead, because
+// nothing would otherwise wake the object. Promoting the grace/turn
+// deadlines to durable alarms (exact firing across a hibernation gap with
+// zero traffic) is a known hardening step, not required for the reconnect
+// path, which write-through + restore + resend already cover.
 //
 // Everything that decides anything lives in src/room/ and is tested under
 // vitest with a fake clock. If logic is accumulating in this file, stop.
@@ -175,10 +185,14 @@ export class RoomDO extends DurableObject<Env> {
     this.ctx.acceptWebSocket(pair[1], [seatTag(seat)])
     pair[1].serializeAttachment({ seat })
 
+    // Mark present BEFORE snapshotting the room, so the 'joined' handshake
+    // reports the seat as connected (not still reconnecting from the drop).
+    host.setConnected(seat, true)
     const tokens = ((await this.ctx.storage.get<Tokens>(TOKENS_KEY)) ?? {}) as Tokens
     pair[1].send(
       JSON.stringify({ type: 'joined', seat, token: tokens[seat]!, room: host.roomInfo(seat) }),
     )
+    // Replay the current game view to the returning seat (handback if piloted).
     host.onReconnect(seat)
     await this.clearAlarmFor('gc')
     this.save()

@@ -67,6 +67,9 @@ export function sanitizeHouseRules(r: unknown): HouseRules {
 
 export type SeatKind = 'open' | 'human' | 'bot'
 
+/** What the table shows per seat (§7): a bot-piloted human reads as 'bot'. */
+export type SeatStatus = 'open' | 'connected' | 'reconnecting' | 'bot'
+
 export interface SeatInfo {
   kind: SeatKind
   /** Display name for humans; null otherwise. */
@@ -75,6 +78,8 @@ export interface SeatInfo {
   difficulty: Difficulty
   /** Live socket right now? Humans only; bots are always "connected". */
   connected: boolean
+  /** Rolled-up presence for the UI (connection + pilot state). */
+  status: SeatStatus
 }
 
 export interface RoomInfo {

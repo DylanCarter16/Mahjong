@@ -26,7 +26,7 @@ import {
   type RuleConfig,
 } from '../engine/game'
 import { makeRng } from '../engine/rng'
-import { nextSeat, SEATS, type Seat, type Wind } from '../engine/types'
+import { nextSeat, SEATS, type Seat, type TileId, type Wind } from '../engine/types'
 import type { Clock, TimerHandle } from './clock'
 import type { ClientMsg, MatchInfo, SeatController } from './protocol'
 import type { Transport } from './transport'
@@ -98,6 +98,12 @@ export interface RoomRunnerOptions {
   logIssue?: (msg: string) => void
   /** Called after every state change — the server's write-through hook. */
   onChange?: () => void
+  /**
+   * Fired after a turn-timer tsumogiri (§6), with the seat's running count of
+   * consecutive timeouts. The room owner uses 2-in-a-row to flip the seat to
+   * bot control. The runner does not decide takeover itself — it reports.
+   */
+  onTurnTimeout?: (seat: Seat, consecutive: number) => void
   dealer?: Seat
   roundWind?: Wind
   /** Test affordance: start from a crafted state instead of a seeded deal. */
@@ -113,6 +119,7 @@ export interface RoomRunnerSnapshot {
   seats: Record<Seat, SeatController>
   seq: number
   botSeed: string
+  consecutiveTimeouts: Record<Seat, number>
 }
 
 export class RoomRunner {
@@ -124,6 +131,9 @@ export class RoomRunner {
   private seq = 0
   private paceTimer: TimerHandle | null = null
   private windowTimer: TimerHandle | null = null
+  private turnTimer: TimerHandle | null = null
+  /** Consecutive turn-timer expiries per seat; reset by a voluntary action. */
+  private consecutiveTimeouts: Record<Seat, number> = { 0: 0, 1: 0, 2: 0, 3: 0 }
   private stopped = false
   private readonly botSeed: string
   private readonly logIssue: (msg: string) => void
@@ -150,6 +160,7 @@ export class RoomRunner {
     r.game = snapshot.game ? structuredClone(snapshot.game) : null
     r.match = structuredClone(snapshot.match)
     r.seq = snapshot.seq
+    r.consecutiveTimeouts = { ...snapshot.consecutiveTimeouts }
     return r
   }
 
@@ -161,7 +172,19 @@ export class RoomRunner {
       seats: this.seats,
       seq: this.seq,
       botSeed: this.botSeed,
+      consecutiveTimeouts: this.consecutiveTimeouts,
     })
+  }
+
+  /**
+   * Flip a seat's controller (§6 takeover/handback). The room owner calls
+   * this when a human disconnects past grace, times out twice, or reconnects.
+   * A seat returning to human control starts fresh on the timeout count.
+   */
+  setSeatController(seat: Seat, ctl: SeatController): void {
+    this.seats[seat] = ctl
+    if (ctl.kind === 'human') this.consecutiveTimeouts[seat] = 0
+    this.pump()
   }
 
   /** Idempotent: first call deals; later calls just re-arm pacing. */
@@ -250,6 +273,8 @@ export class RoomRunner {
       }
       return
     }
+    // A voluntary action clears the AFK count — one real move and you're back.
+    this.consecutiveTimeouts[seat] = 0
     this.afterChange()
   }
 
@@ -334,6 +359,10 @@ export class RoomRunner {
       this.opts.clock.clearTimeout(this.windowTimer)
       this.windowTimer = null
     }
+    if (this.turnTimer) {
+      this.opts.clock.clearTimeout(this.turnTimer)
+      this.turnTimer = null
+    }
   }
 
   private schedulePace(ms: number, fn: () => void): void {
@@ -365,8 +394,14 @@ export class RoomRunner {
       const ctl = this.seats[g.turn]
       if (ctl.kind === 'bot') {
         this.schedulePace(this.opts.timing.botDelayMs, () => this.applyBotTurn())
+      } else if (this.opts.timing.turnTimerMs !== null) {
+        // Human's turn: one AFK player must never stall the other three (§6).
+        const seat = g.turn
+        this.turnTimer = this.opts.clock.setTimeout(() => {
+          this.turnTimer = null
+          this.tsumogiri(seat)
+        }, this.opts.timing.turnTimerMs)
       }
-      // Humans discard via intents; the turn timer arrives in Phase 6.
       return
     }
 
@@ -413,6 +448,34 @@ export class RoomRunner {
     if (ctl.kind !== 'bot') return
     const view = playerView(g, seat)
     this.applyAuto(botAction(view, ctl.difficulty, this.botRng()))
+  }
+
+  /**
+   * Turn timer expired (§6): auto-discard the just-drawn tile — tsumogiri, the
+   * conventional neutral move that doesn't leak intent. After a claim there is
+   * no drawn tile, so fall back to the rightmost legal discard (deterministic,
+   * equally low-information). The bank-standing rule (§6) is automatic: the
+   * discard is applied and never rewound.
+   */
+  private tsumogiri(seat: Seat): void {
+    const g = this.game
+    if (!g || g.phase !== 'discard' || g.turn !== seat) return
+    const discards = legalActions(g, seat).filter(
+      (a): a is Action & { type: 'discard' } => a.type === 'discard',
+    )
+    if (discards.length === 0) return
+    const drewThisTurn = g.lastDraw?.seat === seat
+    const drawn = g.lastDraw?.tile
+    const tile: TileId =
+      drewThisTurn && drawn !== undefined && discards.some((d) => d.tile === drawn)
+        ? drawn
+        : discards[discards.length - 1].tile
+    this.consecutiveTimeouts[seat] = (this.consecutiveTimeouts[seat] ?? 0) + 1
+    const count = this.consecutiveTimeouts[seat]
+    this.applyAuto({ type: 'discard', seat, tile })
+    // Report after applying: the room owner may flip this seat to a bot, which
+    // takes effect on its next turn — this discard already stands.
+    this.opts.onTurnTimeout?.(seat, count)
   }
 
   /** Window lapsed (§5.2 rule 7): every silent eligible seat passes. */
