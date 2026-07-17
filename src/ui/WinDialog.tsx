@@ -1,15 +1,20 @@
 import type { RoundResult } from '../engine/game'
 import type { MatchInfo } from './useGame'
 import { SEAT_NAMES } from './panels'
-import { SEATS } from '../engine/types'
+import { SEATS, type Seat } from '../engine/types'
 
-export function WinDialog({ result, match, onNewRound, onClose }: {
+export function WinDialog({ result, match, onNewRound, onClose, seatLabel, youSeat = 0 }: {
   result: RoundResult
   match: MatchInfo
   onNewRound: () => void
   onClose: () => void
+  /** Multiplayer: real names. Solo falls back to the fixed SEAT_NAMES. */
+  seatLabel?: (seat: Seat) => string
+  /** Which seat is the viewer, for "you win" vs "they win" phrasing. */
+  youSeat?: Seat
 }) {
   const r = result
+  const name = (seat: Seat) => seatLabel?.(seat) ?? SEAT_NAMES[seat]
   return (
     <div className="fixed inset-0 z-20 grid place-items-center bg-black/60 p-4">
       <div className="w-full max-w-md rounded-2xl bg-emerald-950 border border-emerald-700 p-6 shadow-2xl">
@@ -23,8 +28,8 @@ export function WinDialog({ result, match, onNewRound, onClose }: {
         ) : (
           <>
             <h2 className="text-2xl font-bold text-amber-300">
-              {SEAT_NAMES[r.winner!]} win{r.winner === 0 ? '' : 's'}
-              {r.selfDraw ? ' — self-draw 自摸' : ` off ${SEAT_NAMES[r.loser!]}`}
+              {name(r.winner!)} win{r.winner === youSeat ? '' : 's'}
+              {r.selfDraw ? ' — self-draw 自摸' : ` off ${name(r.loser!)}`}
             </h2>
             <table className="mt-4 w-full text-sm">
               <tbody>
@@ -53,7 +58,7 @@ export function WinDialog({ result, match, onNewRound, onClose }: {
           <div className="grid grid-cols-4 gap-2 text-center text-sm">
             {SEATS.map((s) => (
               <div key={s}>
-                <div className="text-emerald-200/70">{SEAT_NAMES[s].replace(' Bot', '')}</div>
+                <div className="truncate text-emerald-200/70">{name(s).replace(' Bot', '')}</div>
                 <div className="font-mono font-bold text-emerald-50">{match.scores[s]}</div>
               </div>
             ))}
