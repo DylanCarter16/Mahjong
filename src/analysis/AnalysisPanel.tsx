@@ -21,12 +21,20 @@ function dangerLabel(score: number | undefined): { text: string; cls: string } {
   return { text: 'high', cls: 'text-rose-300' }
 }
 
-export function AnalysisPanel({ view, finished, byoKey }: {
+export function AnalysisPanel({ view, finished, byoKey, roomCode, coachEnabled = true }: {
   view: PlayerView
   /** Round-end disclosure (result + full log) — null while a round is live. */
   finished: FinishedInfo | null
   /** Optional bring-your-own key from Settings — memory only, never stored. */
   byoKey?: string
+  /** Room code, forwarded for the per-room rate limit (§9). Solo omits it. */
+  roomCode?: string
+  /**
+   * Host's "AI coach allowed" setting (§9). When false, the AI prose calls are
+   * hidden but the local ranked-discard table — free, instant, and honestly
+   * the more useful half — still shows.
+   */
+  coachEnabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -79,6 +87,7 @@ export function AnalysisPanel({ view, finished, byoKey }: {
     setStreamText('')
     const r = await requestCoach(view, {
       ...(byoKey ? { byoKey } : {}),
+      ...(roomCode ? { roomCode } : {}),
       signal: ctl.signal,
       onDelta: setStreamText,
     })
@@ -91,14 +100,14 @@ export function AnalysisPanel({ view, finished, byoKey }: {
   // the panel is open (deliberate: auto-firing every turn with the panel
   // closed would burn the shared rate limit for prose nobody is reading).
   useEffect(() => {
-    if (!open || !myDiscardTurn) return
+    if (!open || !myDiscardTurn || !coachEnabled) return
     void runCoach(false)
     return () => {
       // My turn ended (discard happened): cancel a stale in-flight request.
       if (inFlight.current?.key === key) inFlight.current.ctl.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, myDiscardTurn, key])
+  }, [open, myDiscardTurn, key, coachEnabled])
 
   useEffect(() => () => inFlight.current?.ctl.abort(), [])
 
@@ -114,6 +123,7 @@ export function AnalysisPanel({ view, finished, byoKey }: {
     inFlight.current = { key: 'review', ctl }
     const r = await requestReview(finished.log, finished.result, {
       ...(byoKey ? { byoKey } : {}),
+      ...(roomCode ? { roomCode } : {}),
       signal: ctl.signal,
       onDelta: setStreamText,
     })
@@ -171,33 +181,39 @@ export function AnalysisPanel({ view, finished, byoKey }: {
         </div>
       )}
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          disabled={busy || cooldown > 0 || roundOver}
-          className="rounded-lg bg-amber-400 px-4 py-2 font-semibold text-amber-950 hover:bg-amber-300 disabled:opacity-40 cursor-pointer"
-          onClick={() => void runCoach(true)}
-        >
-          Analyse my hand
-        </button>
-        <button
-          disabled={busy || cooldown > 0 || !roundOver}
-          className="rounded-lg bg-sky-400 px-4 py-2 font-semibold text-sky-950 hover:bg-sky-300 disabled:opacity-40 cursor-pointer"
-          onClick={() => void runReview()}
-          title={roundOver ? '' : 'Available when the round ends'}
-        >
-          Review that round
-        </button>
-        {cooldown > 0 && <span className="self-center text-xs text-emerald-300/70">wait {cooldown}s</span>}
-      </div>
+      {coachEnabled ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            disabled={busy || cooldown > 0 || roundOver}
+            className="min-h-11 rounded-lg bg-amber-400 px-4 py-2 font-semibold text-amber-950 hover:bg-amber-300 disabled:opacity-40 cursor-pointer"
+            onClick={() => void runCoach(true)}
+          >
+            Analyse my hand
+          </button>
+          <button
+            disabled={busy || cooldown > 0 || !roundOver}
+            className="min-h-11 rounded-lg bg-sky-400 px-4 py-2 font-semibold text-sky-950 hover:bg-sky-300 disabled:opacity-40 cursor-pointer"
+            onClick={() => void runReview()}
+            title={roundOver ? '' : 'Available when the round ends'}
+          >
+            Review that round
+          </button>
+          {cooldown > 0 && <span className="self-center text-xs text-emerald-300/70">wait {cooldown}s</span>}
+        </div>
+      ) : (
+        <p className="mt-3 rounded-lg border border-emerald-800 bg-emerald-900/40 p-2 text-xs text-emerald-300/70">
+          The AI coach is turned off for this room. The exact discard table above is local and always available.
+        </p>
+      )}
 
-      {busy && !shownText && <p className="mt-3 animate-pulse text-emerald-200">Thinking…</p>}
-      {result && !result.ok && (
+      {coachEnabled && busy && !shownText && <p className="mt-3 animate-pulse text-emerald-200">Thinking…</p>}
+      {coachEnabled && result && !result.ok && (
         <div className="mt-3 rounded-lg border border-rose-500 bg-rose-500/15 p-3 text-rose-100">
           {result.error}
           <button className="ml-2 underline cursor-pointer" onClick={() => setResult(null)}>dismiss</button>
         </div>
       )}
-      {shownText && (
+      {coachEnabled && shownText && (
         <div className="mt-3 whitespace-pre-wrap rounded-lg border border-emerald-600 bg-emerald-900/70 p-3 text-emerald-50">
           {shownText}
           {result?.ok && result.model && (

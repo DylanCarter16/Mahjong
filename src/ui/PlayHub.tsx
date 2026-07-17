@@ -29,7 +29,14 @@ export function PlayHub({ settings, onChangeSettings }: {
     )
   }
   if (mode.kind === 'mp') {
-    return <MultiplayerScreen join={mode.join} settings={settings} onLeave={() => setMode({ kind: 'menu' })} />
+    return (
+      <MultiplayerScreen
+        join={mode.join}
+        settings={settings}
+        onChangeSettings={onChangeSettings}
+        onLeave={() => setMode({ kind: 'menu' })}
+      />
+    )
   }
   return <Menu onSolo={() => setMode({ kind: 'solo' })} onJoin={(join) => setMode({ kind: 'mp', join })} />
 }

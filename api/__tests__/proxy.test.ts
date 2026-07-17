@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildCoachPrompt, buildReviewPrompt } from '../_lib/buildPrompts'
+import { createHandler } from '../_lib/handler'
 import { makeLimiter, sameOrigin } from '../_lib/limiter'
 import { validatePlayerView, validateReview } from '../_lib/validate'
 import { applyAction, createGame, playerView } from '../../src/engine/game'
@@ -97,6 +98,75 @@ describe('rate limiter', () => {
     expect(lim.check('ip')).not.toBeNull()
     t = 86_400_001
     expect(lim.check('ip')).toBeNull()
+  })
+})
+
+describe('per-room rate limit (§9)', () => {
+  // A handler whose prompt builder always rejects, so a request that PASSES
+  // the limiter returns 400 before any model call — lets us exhaust the
+  // bucket without spending a token.
+  const handler = createHandler({ buildPrompt: () => null, model: 'test', maxTokens: 10 })
+
+  type Rec = { statusCode: number; body: { error?: string } }
+  const makeRes = () => {
+    const rec: Rec = { statusCode: 0, body: {} }
+    const res = {
+      status(c: number) { rec.statusCode = c; return res },
+      json(o: unknown) { rec.body = o as Rec['body']; return res },
+      setHeader() {},
+      write() {},
+      end() {},
+    }
+    return { res, rec }
+  }
+  const call = async (ip: string, room?: string) => {
+    const { res, rec } = makeRes()
+    const req = {
+      method: 'POST',
+      headers: {
+        origin: 'https://x.test',
+        host: 'x.test',
+        'x-forwarded-for': ip,
+        ...(room ? { 'x-room-code': room } : {}),
+      },
+      body: {},
+      query: {},
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await handler(req as any, res as any)
+    return rec
+  }
+
+  it('limits a room even across different IPs, and leaves other rooms alone', async () => {
+    // Rotate IPs so the per-IP bucket never binds first — the room budget is
+    // the only thing that can trip.
+    let roomLimited = false
+    for (let i = 0; i < 40 && !roomLimited; i++) {
+      const rec = await call(`10.0.0.${i}`, 'AA9ZZZ')
+      if (rec.statusCode === 429) {
+        roomLimited = true
+        expect(rec.body.error).toMatch(/room/i)
+      } else {
+        expect(rec.statusCode).toBe(400) // passed the limiter; invalid body
+      }
+    }
+    expect(roomLimited).toBe(true)
+
+    // A different room from a fresh IP is unaffected.
+    const other = await call('172.16.9.9', 'BB8YYY')
+    expect(other.statusCode).toBe(400)
+
+    // A BYO key bypasses the shared limit entirely (would 400 on body, never 429).
+    const { res, rec } = makeRes()
+    const req = {
+      method: 'POST',
+      headers: { origin: 'https://x.test', host: 'x.test', 'x-forwarded-for': '10.0.0.1', 'x-room-code': 'AA9ZZZ', 'x-byo-key': 'sk-ant-fake' },
+      body: {},
+      query: {},
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await handler(req as any, res as any)
+    expect(rec.statusCode).toBe(400) // reached buildPrompt despite the room being capped
   })
 })
 

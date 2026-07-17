@@ -12,10 +12,12 @@ import type { Settings } from './useGame'
 export function MultiplayerScreen({
   join,
   settings,
+  onChangeSettings,
   onLeave,
 }: {
   join: JoinOptions
   settings: Settings
+  onChangeSettings: (s: Settings) => void
   onLeave: () => void
 }) {
   const room = useRoom(join)
@@ -48,6 +50,7 @@ export function MultiplayerScreen({
       <LobbyScreen
         room={state.room}
         you={state.you}
+        byoKeySlot={<ByoKeyField settings={settings} onChange={onChangeSettings} />}
         onSetSeatKind={room.setSeatKind}
         onSetRules={room.setRules}
         onStart={room.start}
@@ -66,12 +69,16 @@ export function MultiplayerScreen({
   }
 
   const you = state.you
-  const coachSlot = state.room.rules.coachAllowed ? (
-    <AnalysisPanel view={state.view} finished={state.finished} byoKey={settings.byoKey || undefined} />
-  ) : (
-    <p className="max-w-2xl rounded-lg border border-emerald-800 bg-emerald-900/40 p-2 text-center text-xs text-emerald-300/60">
-      The AI coach is turned off for this room. The local ranked-discard hints still show on your turn.
-    </p>
+  // The panel always renders: when the host has coaching off, it drops the AI
+  // prose but still shows the local ranked-discard table (§9).
+  const coachSlot = (
+    <AnalysisPanel
+      view={state.view}
+      finished={state.finished}
+      byoKey={settings.byoKey || undefined}
+      roomCode={state.room.code}
+      coachEnabled={state.room.rules.coachAllowed}
+    />
   )
 
   return (
@@ -90,6 +97,30 @@ export function MultiplayerScreen({
       onNewRound={room.newRound}
       onLeave={leave}
     />
+  )
+}
+
+/** BYO-key control, surfaced in the lobby (§9) — memory only, never stored. */
+function ByoKeyField({ settings, onChange }: { settings: Settings; onChange: (s: Settings) => void }) {
+  return (
+    <section aria-label="Your API key" className="rounded-2xl border border-emerald-800 bg-emerald-900/40 p-3">
+      <label htmlFor="lobby-byo" className="block text-sm font-medium text-emerald-100">
+        Use your own Anthropic key <span className="text-emerald-400/60">(optional)</span>
+      </label>
+      <p className="mt-0.5 text-xs text-emerald-300/60">
+        The coach spends the host's shared budget by default. Paste your own key to skip the room's
+        limit — it stays in this tab's memory only, never saved or sent to the game server.
+      </p>
+      <input
+        id="lobby-byo"
+        type="password"
+        autoComplete="off"
+        placeholder="sk-ant-…  (held in memory only)"
+        value={settings.byoKey}
+        onChange={(e) => onChange({ ...settings, byoKey: e.target.value })}
+        className="mt-2 min-h-11 w-full rounded-lg border border-emerald-600 bg-emerald-800 px-3 py-2 font-mono text-sm"
+      />
+    </section>
   )
 }
 
