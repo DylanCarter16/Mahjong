@@ -12,21 +12,25 @@ export function GameScreen({ settings, onChangeSettings }: {
   settings: Settings
   onChangeSettings: (s: Settings) => void
 }) {
-  const { state, view, match, dispatch, newRound } = useGame(settings)
+  const { view, match, finished, dispatch, newRound } = useGame(settings)
   const [showSettings, setShowSettings] = useState(false)
   const [resultDismissed, setResultDismissed] = useState(false)
 
+  const phase = view?.phase
   useEffect(() => {
-    if (state.phase !== 'finished') setResultDismissed(false)
-  }, [state.phase])
+    if (phase !== 'finished') setResultDismissed(false)
+  }, [phase])
 
-  const myDiscardTurn = view.phase === 'discard' && view.turn === HUMAN
+  const myDiscardTurn = view !== null && view.phase === 'discard' && view.turn === HUMAN
   const evals = useMemo(
-    () => (settings.beginnerAids && myDiscardTurn ? evalMyDiscards(view) : []),
+    () => (view && settings.beginnerAids && myDiscardTurn ? evalMyDiscards(view) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [view, settings.beginnerAids, myDiscardTurn],
   )
   const evalFor = (tile: string) => evals.find((e) => e.tile === tile)
+
+  // First view arrives synchronously on mount; this only guards the types.
+  if (!view) return null
 
   const dealerSeat = ([0, 1, 2, 3] as const).find((s) => view.seatWinds[s] === 'E')!
 
@@ -103,8 +107,8 @@ export function GameScreen({ settings, onChangeSettings }: {
           })}
         </div>
         <ActionBar view={view} onAction={dispatch} />
-        <AnalysisPanel view={view} state={state} byoKey={settings.byoKey || undefined} />
-        {state.phase === 'finished' && resultDismissed && (
+        <AnalysisPanel view={view} finished={finished} byoKey={settings.byoKey || undefined} />
+        {view.phase === 'finished' && resultDismissed && (
           <button
             className="rounded-lg bg-amber-400 px-4 py-2 font-semibold text-amber-950 hover:bg-amber-300 cursor-pointer"
             onClick={newRound}
@@ -114,8 +118,8 @@ export function GameScreen({ settings, onChangeSettings }: {
         )}
       </div>
 
-      {state.phase === 'finished' && !resultDismissed && (
-        <WinDialog state={state} match={match} onNewRound={newRound} onClose={() => setResultDismissed(true)} />
+      {finished && !resultDismissed && (
+        <WinDialog result={finished.result} match={match} onNewRound={newRound} onClose={() => setResultDismissed(true)} />
       )}
       {showSettings && (
         <SettingsPanel settings={settings} onChange={onChangeSettings} onClose={() => setShowSettings(false)} />

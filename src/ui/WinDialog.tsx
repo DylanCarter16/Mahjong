@@ -1,16 +1,15 @@
-import type { GameState } from '../engine/game'
+import type { RoundResult } from '../engine/game'
 import type { MatchInfo } from './useGame'
 import { SEAT_NAMES } from './panels'
 import { SEATS } from '../engine/types'
 
-export function WinDialog({ state, match, onNewRound, onClose }: {
-  state: GameState
+export function WinDialog({ result, match, onNewRound, onClose }: {
+  result: RoundResult
   match: MatchInfo
   onNewRound: () => void
   onClose: () => void
 }) {
-  const r = state.result
-  if (!r) return null
+  const r = result
   return (
     <div className="fixed inset-0 z-20 grid place-items-center bg-black/60 p-4">
       <div className="w-full max-w-md rounded-2xl bg-emerald-950 border border-emerald-700 p-6 shadow-2xl">

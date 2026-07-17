@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { rankDiscards, readOpponents } from '../engine/analysis'
-import type { GameState, PlayerView } from '../engine/game'
+import type { PlayerView } from '../engine/game'
 import { glyph, tileName } from '../engine/tiles'
+import type { FinishedInfo } from '../ui/useGame'
 import { requestCoach, requestReview, type AnalysisResult } from './client'
 
 const COOLDOWN_MS = 8_000
@@ -20,9 +21,10 @@ function dangerLabel(score: number | undefined): { text: string; cls: string } {
   return { text: 'high', cls: 'text-rose-300' }
 }
 
-export function AnalysisPanel({ view, state, byoKey }: {
+export function AnalysisPanel({ view, finished, byoKey }: {
   view: PlayerView
-  state: GameState
+  /** Round-end disclosure (result + full log) — null while a round is live. */
+  finished: FinishedInfo | null
   /** Optional bring-your-own key from Settings — memory only, never stored. */
   byoKey?: string
 }) {
@@ -36,7 +38,7 @@ export function AnalysisPanel({ view, state, byoKey }: {
   const cache = useRef(new Map<string, string>())
 
   const myDiscardTurn = view.phase === 'discard' && view.turn === view.seat
-  const roundOver = state.phase === 'finished'
+  const roundOver = view.phase === 'finished' && finished !== null
   const key = viewKey(view)
 
   // The instant local layer: engine facts render at ~0ms; prose is a bonus.
@@ -101,7 +103,7 @@ export function AnalysisPanel({ view, state, byoKey }: {
   useEffect(() => () => inFlight.current?.ctl.abort(), [])
 
   const runReview = async () => {
-    if (busy || Date.now() - lastManualCall.current < COOLDOWN_MS) return
+    if (!finished || busy || Date.now() - lastManualCall.current < COOLDOWN_MS) return
     lastManualCall.current = Date.now()
     setCooldown(COOLDOWN_MS / 1000)
     setBusy(true)
@@ -110,7 +112,7 @@ export function AnalysisPanel({ view, state, byoKey }: {
     inFlight.current?.ctl.abort()
     const ctl = new AbortController()
     inFlight.current = { key: 'review', ctl }
-    const r = await requestReview(state.log, state.result, {
+    const r = await requestReview(finished.log, finished.result, {
       ...(byoKey ? { byoKey } : {}),
       signal: ctl.signal,
       onDelta: setStreamText,
