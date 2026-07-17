@@ -46,5 +46,6 @@ export function createSoloRoom(config: SoloConfig, clock: Clock = systemClock): 
     makeRoundSeed: (roundNo) => `${base}-${roundNo}`,
     botSeed: `${base}-bots`,
   })
+  transport.onMessage((seat, msg) => runner.receive(seat, msg))
   return { conn: transport.client(HUMAN_SEAT), runner }
 }

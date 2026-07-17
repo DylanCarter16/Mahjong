@@ -44,6 +44,7 @@ function makeRoom(
     logIssue: (m) => issues.push(m),
     ...(initialGame ? { initialGame } : {}),
   })
+  transport.onMessage((s, m) => runner.receive(s, m))
   return { runner, clock, inbox, issues, send: (s, m) => conns[s].send(m) }
 }
 

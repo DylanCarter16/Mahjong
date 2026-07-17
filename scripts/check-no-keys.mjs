@@ -3,7 +3,7 @@
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-const ROOTS = ['src', 'api', 'dist'].filter(existsSync)
+const ROOTS = ['src', 'api', 'server/src', 'dist'].filter(existsSync)
 const KEY_PATTERN = /sk-ant-[a-zA-Z0-9_-]{8,}/
 const VITE_KEY_PATTERN = /VITE_[A-Z_]*(?:ANTHROPIC|API_KEY)/
 

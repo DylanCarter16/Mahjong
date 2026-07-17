@@ -66,6 +66,7 @@ function captureSeat(
     logIssue: () => {},
     ...(initialGame ? { initialGame } : {}),
   })
+  transport.onMessage((s, m) => runner.receive(s, m))
   return { msgs, send: (s, m) => conns[s].send(m), clock, runner }
 }
 

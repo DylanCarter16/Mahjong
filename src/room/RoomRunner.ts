@@ -96,10 +96,23 @@ export interface RoomRunnerOptions {
    * someone poking at the protocol, and the owner wants to know which.
    */
   logIssue?: (msg: string) => void
+  /** Called after every state change — the server's write-through hook. */
+  onChange?: () => void
   dealer?: Seat
   roundWind?: Wind
   /** Test affordance: start from a crafted state instead of a seeded deal. */
   initialGame?: GameState
+}
+
+/** Plain-data snapshot: everything needed to resurrect a runner after a
+ * Durable Object eviction. Server-side storage only — it contains the wall. */
+export interface RoomRunnerSnapshot {
+  game: GameState | null
+  match: MatchInfo
+  rules: RuleConfig
+  seats: Record<Seat, SeatController>
+  seq: number
+  botSeed: string
 }
 
 export class RoomRunner {
@@ -126,7 +139,29 @@ export class RoomRunner {
       roundNo: 1,
       scores: { 0: 0, 1: 0, 2: 0, 3: 0 },
     }
-    opts.transport.onMessage((seat, msg) => this.handleMessage(seat, msg))
+  }
+
+  /** Resurrect a runner from a snapshot. Caller still wires messages+start. */
+  static restore(
+    snapshot: RoomRunnerSnapshot,
+    opts: Omit<RoomRunnerOptions, 'rules' | 'seats' | 'initialGame'>,
+  ): RoomRunner {
+    const r = new RoomRunner({ ...opts, rules: snapshot.rules, seats: snapshot.seats })
+    r.game = snapshot.game ? structuredClone(snapshot.game) : null
+    r.match = structuredClone(snapshot.match)
+    r.seq = snapshot.seq
+    return r
+  }
+
+  serialize(): RoomRunnerSnapshot {
+    return structuredClone({
+      game: this.game,
+      match: this.match,
+      rules: this.rules,
+      seats: this.seats,
+      seq: this.seq,
+      botSeed: this.botSeed,
+    })
   }
 
   /** Idempotent: first call deals; later calls just re-arm pacing. */
@@ -148,14 +183,41 @@ export class RoomRunner {
     this.clearTimers()
   }
 
+  /** Re-send current state to one seat — the reconnect/replay path (§6). */
+  resend(seat: Seat): void {
+    const g = this.game
+    if (!g) return
+    this.opts.transport.send(seat, {
+      type: 'view',
+      seq: this.seq,
+      view: playerView(g, seat),
+      match: this.matchSnapshot(),
+    })
+    if (g.phase === 'finished') {
+      this.opts.transport.send(seat, {
+        type: 'finished',
+        seq: this.seq,
+        result: g.result!,
+        log: [...g.log],
+        match: this.matchSnapshot(),
+      })
+    }
+  }
+
   // ------------------------------------------------------------ inbound ----
 
-  private handleMessage(seat: Seat, msg: ClientMsg): void {
+  /** Entry point for client messages; the room owner wires the transport. */
+  receive(seat: Seat, msg: ClientMsg): void {
     if (msg.type === 'newRound') {
       this.handleNewRound(seat, msg.rules, msg.seats)
       return
     }
-    this.handleIntent(seat, msg.action)
+    if (msg.type === 'intent') {
+      this.handleIntent(seat, msg.action)
+      return
+    }
+    // Lobby-level messages are the room owner's business, not the runner's.
+    this.logIssue(`runner ignoring '${msg.type}' message from seat ${seat}`)
   }
 
   private handleIntent(seat: Seat, action: Action): void {
@@ -257,6 +319,7 @@ export class RoomRunner {
         match: this.matchSnapshot(),
       })
     }
+    this.opts.onChange?.()
     this.pump()
   }
 

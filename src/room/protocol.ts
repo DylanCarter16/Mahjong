@@ -23,13 +23,83 @@ export interface MatchInfo {
   scores: Record<Seat, number>
 }
 
+/** House rules the host sets in the lobby (spec §4). */
+export interface HouseRules extends RuleConfig {
+  /** Claim window length in seconds, 3–8. */
+  claimWindowSec: number
+  /** Turn timer in seconds. */
+  turnTimerSec: number
+  /** AI coach visible-to-everyone toggle (§9). Advisory, not a secret. */
+  coachAllowed: boolean
+}
+
+/** Default 0 faan minimum — that's how the family plays (spec §4). */
+export const DEFAULT_HOUSE_RULES: HouseRules = {
+  faanMinimum: 0,
+  flowers: true,
+  faanCap: null,
+  claimWindowSec: 4,
+  turnTimerSec: 30,
+  coachAllowed: true,
+}
+
+/** Clamp untrusted lobby input into the ranges the spec allows. */
+export function sanitizeHouseRules(r: unknown): HouseRules {
+  const raw = (typeof r === 'object' && r !== null ? r : {}) as Record<string, unknown>
+  const d = DEFAULT_HOUSE_RULES
+  const num = (v: unknown, fallback: number): number =>
+    typeof v === 'number' && Number.isFinite(v) ? v : fallback
+  const faanMinimum = [0, 1, 3].includes(raw.faanMinimum as number)
+    ? (raw.faanMinimum as 0 | 1 | 3)
+    : d.faanMinimum
+  return {
+    faanMinimum,
+    flowers: typeof raw.flowers === 'boolean' ? raw.flowers : d.flowers,
+    faanCap:
+      raw.faanCap === null || raw.faanCap === undefined
+        ? null
+        : Math.max(1, Math.min(64, num(raw.faanCap, 13))),
+    claimWindowSec: Math.max(3, Math.min(8, num(raw.claimWindowSec, d.claimWindowSec))),
+    turnTimerSec: Math.max(10, Math.min(120, num(raw.turnTimerSec, d.turnTimerSec))),
+    coachAllowed: typeof raw.coachAllowed === 'boolean' ? raw.coachAllowed : d.coachAllowed,
+  }
+}
+
+export type SeatKind = 'open' | 'human' | 'bot'
+
+export interface SeatInfo {
+  kind: SeatKind
+  /** Display name for humans; null otherwise. */
+  name: string | null
+  /** Bot difficulty (used when kind is 'bot', and as takeover default). */
+  difficulty: Difficulty
+  /** Live socket right now? Humans only; bots are always "connected". */
+  connected: boolean
+}
+
+export interface RoomInfo {
+  code: string
+  phase: 'lobby' | 'playing'
+  hostSeat: Seat
+  /** The seat this particular message was addressed to. */
+  you: Seat
+  seats: Record<Seat, SeatInfo>
+  rules: HouseRules
+}
+
 /** Client → room. */
 export type ClientMsg =
   | { type: 'intent'; action: Action }
   | { type: 'newRound'; rules?: RuleConfig; seats?: Record<Seat, SeatController> }
+  | { type: 'lobby'; op: 'seatKind'; seat: Seat; kind: 'open' | 'bot'; difficulty?: Difficulty }
+  | { type: 'lobby'; op: 'rules'; rules: HouseRules }
+  | { type: 'start' }
 
 /** Room → seat(s). */
 export type ServerMsg =
   | { type: 'view'; seq: number; view: PlayerView; match: MatchInfo }
   | { type: 'finished'; seq: number; result: RoundResult; log: Action[]; match: MatchInfo }
   | { type: 'rejected'; seq: number; reason: string }
+  | { type: 'room'; room: RoomInfo }
+  /** Join/reclaim handshake. The ONLY message that ever carries the token. */
+  | { type: 'joined'; seat: Seat; token: string; room: RoomInfo }
