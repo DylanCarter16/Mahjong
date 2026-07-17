@@ -52,40 +52,14 @@ export function BonusRow({ tiles }: { tiles: TileId[] }) {
   )
 }
 
-export function OpponentPanel({ view, seat, numbered, dealerSeat, label, status }: {
-  view: PlayerView
-  seat: Seat
-  numbered: boolean
-  dealerSeat: Seat
-  /** Multiplayer: the real display name. Solo falls back to SEAT_NAMES. */
-  label?: string
-  /** Multiplayer: connection state chip. Solo omits it. */
-  status?: SeatStatus
-}) {
-  const active = view.turn === seat && view.phase !== 'finished'
-  return (
-    <div className={`flex flex-col items-center gap-1.5 p-2 rounded-xl ${active ? 'bg-emerald-800/70 shadow-lg' : ''}`}>
-      <div className="flex items-center gap-1.5 text-sm font-medium text-emerald-100/90">
-        <span className="max-w-28 truncate">{label ?? SEAT_NAMES[seat]}</span> · {view.seatWinds[seat]}
-        {dealerSeat === seat && <span className="text-amber-300" title="dealer">◆</span>}
-        {status && <SeatStatusBadge status={status} />}
-      </div>
-      <div className="flex gap-px">
-        {Array.from({ length: view.handCounts[seat] }, (_, i) => (
-          <TileView key={i} tile={null} size="sm" />
-        ))}
-      </div>
-      <MeldRow melds={view.melds[seat]} numbered={numbered} />
-      <BonusRow tiles={view.bonus[seat]} />
-    </div>
-  )
-}
-
 export function DiscardPool({ view, seat, numbered }: { view: PlayerView; seat: Seat; numbered: boolean }) {
   const tiles = view.discards[seat]
   const pending = view.pendingDiscard?.from === seat ? view.pendingDiscard.tile : null
+  // Fluid width capped at ~6 sm-tiles wide, so it fills a stack grid cell yet
+  // holds the functional 6-per-row per-seat layout (§5.4) that teaches discard
+  // reading — shrunk to fit a phone, never merged into an undifferentiated blob.
   return (
-    <div className="min-h-9 w-44 flex flex-wrap gap-0.5 content-start justify-center">
+    <div className="min-h-9 w-full max-w-44 mx-auto flex flex-wrap gap-0.5 content-start justify-center">
       {tiles.map((t, i) => (
         <TileView key={i} tile={t} size="sm" numbered={numbered} />
       ))}
