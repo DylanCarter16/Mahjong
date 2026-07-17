@@ -8,6 +8,7 @@ import {
   legalActions,
   playerView,
   type Action,
+  type GameState,
   type RuleConfig,
 } from '../game'
 
@@ -134,6 +135,96 @@ describe('claim priority', () => {
     s = applyAction(s, { type: 'claim', seat: 3, claim: 'pung' })
     s = applyAction(s, { type: 'claim', seat: 2, claim: 'win' })
     expect(s.result).toMatchObject({ kind: 'win', winner: 2 })
+  })
+
+  it('pung beats chow, even when the chow is from the nearer seat (§5.1)', () => {
+    // Regression: a chow is only ever claimable by the seat right after the
+    // discarder, so if the meld selector went purely by seat order a chow
+    // would always beat a farther seat's pung. It must not.
+    const h1 = 'p4 p6 m1 m4 m7 s1 s4 s7 wN wW dR dG dW' // seat 1 can chow p5
+    const h2 = 'p5 p5 m2 m5 m8 s2 s5 s8 wN wW dR dG dW' // seat 2 can pung p5
+    const h3 = 'm3 m6 m9 s3 s6 s9 p1 p2 p3 p7 p8 p9 dW' // no claim on p5
+    const wall = rig({ h0: JUNK_A, h1, h2, h3, extra: 'p5' })
+    let s = createGameWithWall(cfg(), wall)
+    s = applyAction(s, { type: 'discard', seat: 0, tile: 'p5' })
+    expect(legalActions(s, 1).some((a) => a.type === 'claim' && typeof a.claim === 'object')).toBe(true)
+    expect(legalActions(s, 2).some((a) => a.type === 'claim' && a.claim === 'pung')).toBe(true)
+    // Chow arrives FIRST and from the nearer seat; pung arrives after.
+    s = applyAction(s, { type: 'claim', seat: 1, claim: { chow: ['p4', 'p6'] } })
+    expect(s.phase).toBe('claims') // still collecting — never resolve on arrival
+    s = applyAction(s, { type: 'claim', seat: 2, claim: 'pung' })
+    expect(s.turn).toBe(2)
+    expect(s.melds[2][0]).toMatchObject({ type: 'pung', tiles: ['p5', 'p5', 'p5'] })
+    expect(s.melds[1]).toHaveLength(0) // chow rejected by priority
+  })
+})
+
+// Robbing the kong (搶槓, §5.3) — added new in Phase 2; Phase 1 did not
+// implement it (README assumptions list). Builds the pre-added-kong position
+// directly: seat 1 holds an exposed pung of p5 plus the 4th p5 and it is
+// seat 1's turn.
+function robKongPosition(seat2Hand: string): GameState {
+  const wall = rig({ h0: JUNK_A, h1: JUNK_B, h2: JUNK_C, h3: JUNK_A, extra: 'p1' })
+  const s = createGameWithWall(cfg(), wall)
+  s.melds[1] = [{ type: 'pung', tiles: ['p5', 'p5', 'p5'], concealed: false, claimedFrom: 0 }]
+  s.hands[1] = hand('p5 m1 m4 m7 s1 s4 s7 wN wW dG')
+  s.hands[2] = hand(seat2Hand)
+  s.turn = 1
+  s.phase = 'discard'
+  s.pendingDiscard = null
+  s.claims = {}
+  s.lastDraw = { seat: 1, tile: 'm1', kongReplacement: false, lastWallTile: false }
+  return s
+}
+
+describe('robbing the kong (§5.3)', () => {
+  it('an added kong opens a win-only window and a waiting seat robs it', () => {
+    // seat 2 is tenpai on p5 (p4 p6 + four complete groups worth of shape).
+    let s = robKongPosition('p4 p6 m1 m2 m3 s7 s8 s9 p1 p2 p3 wW wW')
+    const kong = legalActions(s, 1).find((a) => a.type === 'kong' && a.style === 'added')
+    expect(kong).toBeDefined()
+    s = applyAction(s, kong as Action)
+
+    // The window is win-only, and it belongs to the seats that can rob.
+    expect(s.phase).toBe('claims')
+    expect(s.pendingDiscard).toMatchObject({ tile: 'p5', from: 1, robKong: true })
+    const claims2 = legalActions(s, 2).filter((a) => a.type === 'claim')
+    expect(claims2).toHaveLength(1)
+    expect(claims2[0]).toMatchObject({ type: 'claim', claim: 'win' })
+
+    s = applyAction(s, { type: 'claim', seat: 2, claim: 'win' })
+    // The konger is the discarder for scoring; the kong never formed.
+    expect(s.result).toMatchObject({ kind: 'win', winner: 2, loser: 1 })
+    expect(s.melds[1][0].type).toBe('pung')
+  })
+
+  it('an added kong with no eligible robber completes and draws a replacement', () => {
+    let s = robKongPosition('m5 m6 m7 s2 s3 s4 wN wS dW dW dG dG p8') // cannot win on p5
+    const kong = legalActions(s, 1).find((a) => a.type === 'kong' && a.style === 'added')
+    s = applyAction(s, kong as Action)
+    // Resolved synchronously: no human is owed a window when nobody can rob.
+    expect(s.phase).toBe('discard')
+    expect(s.turn).toBe(1)
+    expect(s.melds[1][0]).toMatchObject({ type: 'kong', kongStyle: 'added', tiles: ['p5', 'p5', 'p5', 'p5'] })
+    expect(s.lastDraw).toMatchObject({ seat: 1, kongReplacement: true })
+  })
+
+  it('a concealed kong is not robbable — it never opens a window', () => {
+    const wall = rig({
+      h0: 's5 s5 s5 s5 m1 m4 m7 wN wW dG p7 p8 p9',
+      h1: JUNK_B,
+      h2: JUNK_C,
+      h3: JUNK_A,
+      extra: 'p1',
+      back: 'm2',
+    })
+    let s = createGameWithWall(cfg(), wall)
+    const kong = legalActions(s, 0).find((a) => a.type === 'kong' && a.style === 'concealed')
+    expect(kong).toBeDefined()
+    s = applyAction(s, kong as Action)
+    expect(s.phase).toBe('discard') // straight to discard: no claims phase at all
+    expect(s.turn).toBe(0)
+    expect(s.melds[0][0]).toMatchObject({ type: 'kong', concealed: true })
   })
 })
 

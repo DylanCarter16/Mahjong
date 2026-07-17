@@ -1,0 +1,27 @@
+// Cloudflare Worker + Durable Objects config for the multiplayer server.
+// One room = one RoomDO instance, addressed by room code. SQLite-backed
+// storage classes keep this on the free tier.
+//
+// Deploy:   npx wrangler deploy -c server/wrangler.jsonc
+// Dev:      npx wrangler dev -c server/wrangler.jsonc
+// Logs:     npx wrangler tail -c server/wrangler.jsonc
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mahjong-server",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomDO"] }],
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "RoomDO" }]
+  },
+  "observability": { "enabled": true },
+  "vars": {
+    // Comma-separated list of allowed browser origins. Empty = allow any
+    // (fine for wrangler dev; set your Vercel origin in production).
+    "ALLOWED_ORIGINS": ""
+    // ADMIN_KEY is a secret, not a var:
+    //   npx wrangler secret put ADMIN_KEY -c server/wrangler.jsonc
+    // It gates GET /api/rooms/:code/debug and POST /api/rooms/:code/reset —
+    // the 2am escape hatches. Unset = those routes are disabled.
+  }
+}

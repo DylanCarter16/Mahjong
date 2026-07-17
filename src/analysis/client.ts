@@ -17,6 +17,8 @@ export function stripFences(text: string): string {
 
 export interface RequestOptions {
   byoKey?: string
+  /** Room code, forwarded for the per-room rate-limit bucket (§9). */
+  roomCode?: string
   signal?: AbortSignal
   /** Streaming callback; receives the full accumulated text on each delta. */
   onDelta?: (fullText: string) => void
@@ -36,7 +38,7 @@ interface SseChunk {
 }
 
 async function post(path: string, body: unknown, opts: RequestOptions): Promise<AnalysisResult> {
-  const { byoKey, signal, onDelta } = opts
+  const { byoKey, roomCode, signal, onDelta } = opts
   try {
     const stream = Boolean(onDelta)
     const res = await fetch(`${path}${stream ? '?stream=1' : ''}`, {
@@ -44,6 +46,7 @@ async function post(path: string, body: unknown, opts: RequestOptions): Promise<
       headers: {
         'content-type': 'application/json',
         ...(byoKey ? { 'x-byo-key': byoKey } : {}),
+        ...(roomCode ? { 'x-room-code': roomCode } : {}),
       },
       body: JSON.stringify(body),
       ...(signal ? { signal } : {}),

@@ -9,7 +9,11 @@
 //     4-4-4-1 deal.
 //   - The dead wall is positional: the last 14 tiles of the remaining wall.
 //     Replacement draws (kongs, bonus tiles) come off the back.
-//   - Robbing the kong is not implemented.
+//   - Robbing the kong (搶槓, Phase 2 §5.3): an ADDED kong opens a win-only
+//     claim window before it completes; if a seat wins off the added tile,
+//     the kong never forms and the konger is the discarder for scoring.
+//     Concealed kongs are not robbable (HK family rules; the thirteen-
+//     orphans exception is deliberately not implemented).
 
 import { scoreBest, winDeclarable, type FanResult, type ScoringContext } from './fan'
 import { defaultFanTable } from './fanTable'
@@ -56,7 +60,9 @@ export interface GameState {
   discards: Record<Seat, TileId[]>
   turn: Seat
   phase: Phase
-  pendingDiscard: { tile: TileId; from: Seat } | null
+  /** The tile a claims phase is about: a discard, or (robKong) the tile just
+   * added to an exposed pung, claimable by win only. */
+  pendingDiscard: { tile: TileId; from: Seat; robKong?: true } | null
   claims: Partial<Record<Seat, ClaimKind | 'pass'>>
   /** Set after a draw/kong replacement; cleared by claims. Gates declareWin. */
   lastDraw: { seat: Seat; tile: TileId; kongReplacement: boolean; lastWallTile: boolean } | null
@@ -84,7 +90,7 @@ export interface PlayerView {
   faanMinimum: number
   turn: Seat
   phase: Phase
-  pendingDiscard: { tile: TileId; from: Seat } | null
+  pendingDiscard: { tile: TileId; from: Seat; robKong?: true } | null
   lastClaimed: TileId | null
   legal: Action[]
 }
@@ -188,9 +194,15 @@ function winFan(s: GameState, seat: Seat, concealed: TileId[], byDiscard: boolea
 function claimOptions(s: GameState, seat: Seat): ClaimKind[] {
   const pd = s.pendingDiscard
   if (!pd || seat === pd.from) return []
-  const out: ClaimKind[] = []
   const h = s.hands[seat]
   const tile = pd.tile
+
+  // Robbing the kong: the added tile can be won, never melded from.
+  if (pd.robKong) {
+    return winFan(s, seat, [...h, tile], true) ? ['win'] : []
+  }
+
+  const out: ClaimKind[] = []
   const copies = h.filter((t) => t === tile).length
 
   if (winFan(s, seat, [...h, tile], true)) out.push('win')
@@ -299,21 +311,50 @@ function finishWin(s: GameState, seat: Seat, byDiscard: boolean): void {
   s.phase = 'finished'
 }
 
+/** All robbers passed: the added kong completes and draws its replacement. */
+function completeAddedKong(s: GameState, from: Seat, tile: TileId): void {
+  const pung = s.melds[from].find((m) => m.type === 'pung' && m.tiles[0] === tile)!
+  pung.type = 'kong'
+  pung.tiles = [tile, tile, tile, tile]
+  pung.kongStyle = 'added'
+  const r = replacementDraw(s, from)
+  s.hands[from] = sortTiles([...s.hands[from], r])
+  s.lastDraw = { seat: from, tile: r, kongReplacement: true, lastWallTile: live(s) <= 0 }
+  s.pendingDiscard = null
+  s.claims = {}
+  s.turn = from
+  s.phase = 'discard'
+}
+
 function resolveClaims(s: GameState): void {
   const from = s.pendingDiscard!.from
   const tile = s.pendingDiscard!.tile
+  const robKong = s.pendingDiscard!.robKong === true
   const inOrder: Seat[] = [1, 2, 3].map((i) => (((from + i) % 4) as Seat))
 
+  // Ties resolve by seat order counter-clockwise from the discarder —
+  // multiple winners off one discard: the nearest seat takes it (§5.3).
   const winner = inOrder.find((seat) => s.claims[seat] === 'win')
   if (winner !== undefined) {
     finishWin(s, winner, true)
     return
   }
 
-  const melder = inOrder.find((seat) => {
-    const c = s.claims[seat]
-    return c === 'pung' || c === 'kong' || (typeof c === 'object' && c !== null)
-  })
+  if (robKong) {
+    completeAddedKong(s, from, tile)
+    return
+  }
+
+  // Priority §5.1: pung/kong outrank chow; within a rank the nearest seat
+  // from the discarder wins. `inOrder` is already nearest-first, so a chow
+  // (only ever claimable by the nearest seat) must NOT be picked ahead of a
+  // farther seat's pung/kong — take all melds by rank, seat order breaking ties.
+  const melder =
+    inOrder.find((seat) => s.claims[seat] === 'pung' || s.claims[seat] === 'kong') ??
+    inOrder.find((seat) => {
+      const c = s.claims[seat]
+      return typeof c === 'object' && c !== null
+    })
   if (melder !== undefined) {
     const c = s.claims[melder]!
     const h = s.hands[melder]
@@ -411,13 +452,15 @@ export function applyAction(state: GameState, action: Action): GameState {
           kongStyle: 'concealed',
         })
       } else {
+        // An added kong is robbable (§5.3): the tile leaves the hand and a
+        // win-only claim window opens BEFORE the kong completes. With no
+        // eligible robber this resolves synchronously into the kong.
         removeTiles(h, [action.tile])
-        const pung = s.melds[action.seat].find(
-          (m) => m.type === 'pung' && m.tiles[0] === action.tile,
-        )!
-        pung.type = 'kong'
-        pung.tiles = [action.tile, action.tile, action.tile, action.tile]
-        pung.kongStyle = 'added'
+        s.pendingDiscard = { tile: action.tile, from: action.seat, robKong: true }
+        s.claims = {}
+        s.phase = 'claims'
+        if (eligibleSeats(s).length === 0) resolveClaims(s)
+        break
       }
       const r = replacementDraw(s, action.seat)
       s.hands[action.seat] = sortTiles([...h, r])

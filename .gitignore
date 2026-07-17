@@ -3,3 +3,9 @@ dist/
 .env
 .env.*
 *.local
+
+# wrangler local dev state
+.wrangler/
+
+# TS incremental build info
+tsconfig.tsbuildinfo

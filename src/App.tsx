@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { LessonScreen } from './lessons/LessonScreen'
 import { GalleryScreen } from './ui/GalleryScreen'
-import { GameScreen } from './ui/GameScreen'
+import { PlayHub } from './ui/PlayHub'
 import { TileDefs } from './ui/tiles/TileFace'
 import { defaultSettings, type Settings } from './ui/useGame'
 
@@ -43,7 +43,7 @@ export default function App() {
       </nav>
       <main className="mx-auto max-w-6xl">
         {tab === 'play' ? (
-          <GameScreen settings={settings} onChangeSettings={setSettings} />
+          <PlayHub settings={settings} onChangeSettings={setSettings} />
         ) : (
           <LessonScreen
             completed={completedUnits}

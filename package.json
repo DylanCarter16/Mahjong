@@ -10,7 +10,15 @@
     "preview": "vite preview",
     "pretest": "node scripts/check-no-keys.mjs",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc -b && tsc -p server",
+    "server:dev": "wrangler dev -c server/wrangler.jsonc",
+    "server:deploy": "wrangler deploy -c server/wrangler.jsonc",
+    "server:tail": "wrangler tail -c server/wrangler.jsonc",
+    "smoke:server": "node scripts/smoke-server.mjs",
+    "smoke:game": "node scripts/smoke-game.mjs",
+    "smoke:reconnect": "node scripts/smoke-reconnect.mjs",
+    "verify:ui": "node scripts/verify-ui.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
@@ -19,14 +27,17 @@
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260717.1",
     "@tailwindcss/vite": "^4.3.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vercel/node": "^5.8.25",
     "@vitejs/plugin-react": "^6.0.3",
+    "playwright-core": "^1.61.1",
     "tailwindcss": "^4.3.2",
     "typescript": "^7.0.2",
     "vite": "^8.1.4",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "wrangler": "^4.112.0"
   }
 }

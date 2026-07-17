@@ -12,6 +12,10 @@ const SIZES = {
   sm: 'w-7',
   md: 'w-10',
   lg: 'w-14',
+  // The hand: 44px tap target on phones (the ≥44px minimum applies to the
+  // tappable area), 56px from `sm` up. Lets 14 tiles wrap to two rows on a
+  // narrow portrait screen while staying easy to tell apart and tap.
+  hand: 'w-11 sm:w-14',
 }
 
 // Rings use the semantic scale: highlighted = suggested/consider (orange),

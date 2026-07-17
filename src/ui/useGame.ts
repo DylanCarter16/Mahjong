@@ -1,15 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { botAction, type Difficulty } from '../engine/bots'
-import {
-  applyAction,
-  createGame,
-  playerView,
-  type Action,
-  type GameState,
-  type RuleConfig,
-} from '../engine/game'
-import { makeRng, type Rng } from '../engine/rng'
-import { nextSeat, SEATS, type Seat, type Wind } from '../engine/types'
+// Solo play, rehosted on RoomRunner + LocalTransport (Phase 2 §3). The hook
+// is now a thin client: it sends intents over a ClientConn and renders the
+// PlayerViews that come back. It never touches GameState — the same UI
+// contract a multiplayer client gets over a socket.
+
+import { useEffect, useRef, useState } from 'react'
+import type { Difficulty } from '../engine/bots'
+import type { Action, PlayerView, RoundResult, RuleConfig } from '../engine/game'
+import type { Seat } from '../engine/types'
+import type { MatchInfo } from '../room/protocol'
+import { createSoloRoom, type SoloRoom } from '../room/solo'
 
 export const HUMAN: Seat = 0
 
@@ -31,103 +30,74 @@ export const defaultSettings: Settings = {
   byoKey: '',
 }
 
-export interface MatchInfo {
-  dealer: Seat
-  roundWind: Wind
-  roundNo: number
-  /** Cumulative faan won per seat (teaching scoreboard, not point settlement). */
-  scores: Record<Seat, number>
-}
+export type { MatchInfo }
 
-const WIND_ORDER: Wind[] = ['E', 'S', 'W', 'N']
-
-/** The next automatic action: bot moves and everyone's forced draws. */
-function autoAction(s: GameState, difficulties: Record<Seat, Difficulty>, rng: Rng): Action | null {
-  if (s.phase === 'finished') return null
-  if (s.phase === 'draw') return { type: 'draw', seat: s.turn }
-  if (s.phase === 'claims') {
-    for (const seat of SEATS) {
-      if (seat === HUMAN) continue
-      const v = playerView(s, seat)
-      if (v.legal.length > 0) return botAction(v, difficulties[seat], rng)
-    }
-    return null
-  }
-  if (s.turn !== HUMAN) return botAction(playerView(s, s.turn), difficulties[s.turn], rng)
-  return null
+/** Round-end disclosure: what the review coach and the win dialog consume. */
+export interface FinishedInfo {
+  result: RoundResult
+  log: Action[]
 }
 
 export function useGame(settings: Settings) {
-  const baseSeed = useRef(`match-${Math.random().toString(36).slice(2)}`)
-  const rng = useRef(makeRng(baseSeed.current))
+  const roomRef = useRef<SoloRoom | null>(null)
+  if (!roomRef.current) {
+    roomRef.current = createSoloRoom({
+      rules: {
+        faanMinimum: settings.faanMinimum,
+        flowers: settings.flowers,
+        faanCap: settings.faanCap,
+      },
+      difficulties: settings.difficulties,
+    })
+  }
+  const room = roomRef.current
+
+  const [view, setView] = useState<PlayerView | null>(null)
   const [match, setMatch] = useState<MatchInfo>({
     dealer: 0,
     roundWind: 'E',
     roundNo: 1,
     scores: { 0: 0, 1: 0, 2: 0, 3: 0 },
   })
-  // Rules are locked in when the round starts; settings changes apply on "next round".
-  const [rules, setRules] = useState<RuleConfig>(settings)
-  const [state, setState] = useState<GameState>(() =>
-    createGame(settings, `${baseSeed.current}-1`, 0, 'E'),
-  )
-  const scoredRef = useRef(false)
+  const [finished, setFinished] = useState<FinishedInfo | null>(null)
 
-  // Drive bots and forced draws with a small think delay.
   useEffect(() => {
-    const a = autoAction(state, settings.difficulties, rng.current)
-    if (!a) return
-    const delay = a.type === 'draw' ? 300 : 650
-    const timer = setTimeout(() => {
-      setState((s) => {
-        const next = autoAction(s, settings.difficulties, rng.current)
-        return next ? applyAction(s, next) : s
-      })
-    }, delay)
-    return () => clearTimeout(timer)
-  }, [state, settings.difficulties])
-
-  // Bank the winner's faan onto the scoreboard once per round.
-  useEffect(() => {
-    if (state.phase !== 'finished') {
-      scoredRef.current = false
-      return
+    const unsubscribe = room.conn.onMessage((m) => {
+      if (m.type === 'view') {
+        setView(m.view)
+        setMatch(m.match)
+        if (m.view.phase !== 'finished') setFinished(null)
+      } else if (m.type === 'finished') {
+        setFinished({ result: m.result, log: m.log })
+        setMatch(m.match)
+      }
+    })
+    room.runner.start()
+    return () => {
+      unsubscribe()
+      room.runner.stop()
     }
-    if (scoredRef.current) return
-    scoredRef.current = true
-    const r = state.result
-    if (r?.kind === 'win' && r.winner !== undefined && r.fan) {
-      setMatch((m) => ({
-        ...m,
-        scores: { ...m.scores, [r.winner!]: m.scores[r.winner!] + r.fan!.totalFaan },
-      }))
-    }
-  }, [state])
+  }, [room])
 
-  const view = useMemo(() => playerView(state, HUMAN), [state])
+  // Settings changes apply on "next round", same as the rules always have.
+  const settingsRef = useRef(settings)
+  settingsRef.current = settings
 
-  const dispatch = (a: Action) => setState((s) => applyAction(s, a))
+  const dispatch = (a: Action) => room.conn.send({ type: 'intent', action: a })
 
-  /** Dealer repeats on a dealer win or a drawn round, otherwise the deal rotates. */
   const newRound = () => {
-    const r = state.result
-    const dealerRepeats = r?.kind === 'draw' || (r?.kind === 'win' && r.winner === match.dealer)
-    const dealer = dealerRepeats ? match.dealer : nextSeat(match.dealer)
-    // After the deal passes back to seat 0, the round wind advances.
-    const roundWind =
-      !dealerRepeats && dealer === 0
-        ? WIND_ORDER[(WIND_ORDER.indexOf(match.roundWind) + 1) % 4]
-        : match.roundWind
-    const roundNo = match.roundNo + 1
-    const nextRules: RuleConfig = {
-      faanMinimum: settings.faanMinimum,
-      flowers: settings.flowers,
-      faanCap: settings.faanCap,
-    }
-    setMatch((m) => ({ ...m, dealer, roundWind, roundNo }))
-    setRules(nextRules)
-    setState(createGame(nextRules, `${baseSeed.current}-${roundNo}`, dealer, roundWind))
+    const s = settingsRef.current
+    room.conn.send({
+      type: 'newRound',
+      rules: { faanMinimum: s.faanMinimum, flowers: s.flowers, faanCap: s.faanCap },
+      seats: {
+        0: { kind: 'human' },
+        1: { kind: 'bot', difficulty: s.difficulties[1] },
+        2: { kind: 'bot', difficulty: s.difficulties[2] },
+        3: { kind: 'bot', difficulty: s.difficulties[3] },
+      },
+    })
   }
 
-  return { state, view, match, rules, dispatch, newRound }
+  return { view, match, finished, dispatch, newRound }
 }

@@ -15,12 +15,27 @@ export interface EndpointConfig {
   maxTokens: number
 }
 
+// Two best-effort in-memory buckets (both reset on cold start — see README):
+//   - per IP, the Phase 1.5 limit sized for one person.
+//   - per room (§9): a shared room now spends MY credits, so the whole room
+//     shares one budget. Neither is a hard security boundary — the BYO-key
+//     hatch is the real pressure valve — but together they stop one room, or
+//     one stranger in it, from draining the key.
 const limiter = makeLimiter({ perMinute: 20, perDay: 200 })
+const roomLimiter = makeLimiter({ perMinute: 15, perDay: 150 })
 
 function clientIp(req: VercelRequest): string {
   const fwd = req.headers['x-forwarded-for']
   const first = Array.isArray(fwd) ? fwd[0] : fwd
   return first?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown'
+}
+
+/** Client-supplied room code, used only as a rate-limit bucket key. */
+function roomBucket(req: VercelRequest): string | null {
+  const h = req.headers['x-room-code']
+  const raw = Array.isArray(h) ? h[0] : h
+  const code = raw?.replace(/[^A-Za-z0-9]/g, '').slice(0, 12)
+  return code && code.length > 0 ? `room:${code}` : null
 }
 
 export function createHandler(cfg: EndpointConfig) {
@@ -40,10 +55,17 @@ export function createHandler(cfg: EndpointConfig) {
       const byoKey = typeof byoHeader === 'string' && byoHeader.length > 0 && byoHeader.length < 250 ? byoHeader : null
 
       if (!byoKey) {
-        const retryAfter = limiter.check(clientIp(req))
+        // Room budget first (tighter, shared) so a room-limited request does
+        // not also spend an IP token; then the per-IP budget.
+        const room = roomBucket(req)
+        const roomRetry = room ? roomLimiter.check(room) : null
+        const retryAfter = roomRetry ?? limiter.check(clientIp(req))
         if (retryAfter !== null) {
           res.setHeader('Retry-After', String(retryAfter))
-          res.status(429).json({ error: 'rate limited', retryAfter })
+          res.status(429).json({
+            error: roomRetry !== null ? 'this room has hit its shared coach limit' : 'rate limited',
+            retryAfter,
+          })
           return
         }
       }
