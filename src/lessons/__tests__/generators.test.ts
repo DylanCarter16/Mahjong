@@ -33,7 +33,7 @@ describe('generators are seeded and engine-validated', () => {
   it('recognition: correct option is the tile name; timed', () => {
     for (const s of seeds) {
       const item = genRecognition(2, makeRng(s))
-      expect(item.timeLimitMs).toBe(2200)
+      expect(item.timeLimitMs).toBe(4500)
       const ex = item.exercise
       if (ex.kind !== 'choice') throw new Error('expected choice')
       expect(ex.options[ex.correct]).toBe(tileName(ex.showTiles![0]))
@@ -139,5 +139,18 @@ describe('generators are seeded and engine-validated', () => {
     const a = genFaanCount(2, makeRng('same'))
     const b = genFaanCount(2, makeRng('same'))
     expect(a.exercise).toMatchObject(JSON.parse(JSON.stringify(b.exercise)))
+  })
+})
+
+describe('board context', () => {
+  it('position-based items carry the board they are about', async () => {
+    const { genSafeTile, genSuitRead } = await import('../generators')
+    const safe = genSafeTile(1, makeRng('board-1'))
+    const read = genSuitRead(1, makeRng('board-2'))
+    expect(safe.board).toBeDefined()
+    expect(read.board).toBeDefined()
+    // the board actually has something to read
+    const pools = [0, 1, 2, 3].reduce((n, s) => n + read.board!.discards[s as 0].length, 0)
+    expect(pools).toBeGreaterThan(0)
   })
 })

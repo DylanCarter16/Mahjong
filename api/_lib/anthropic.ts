@@ -82,7 +82,11 @@ async function streamOnce(
       if (ev.type === 'error') return { ok: false, error: ev.error?.message ?? 'upstream stream error' }
     }
   }
-  if (refusal && !emitted) return { ok: false, error: 'refusal', refusal: true }
+  if (!emitted) {
+    // A completion with no text (refusal, or the token budget consumed before
+    // any text) must count as failure so the fallback model gets a turn.
+    return { ok: false, error: refusal ? 'refusal' : 'the model returned no text', refusal }
+  }
   return { ok: true, model: opts.model }
 }
 

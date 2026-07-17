@@ -3,7 +3,7 @@
 // engine's analysis over it and hands the model FACTS plus a short ask.
 // No client-supplied prompt text ever reaches the model.
 
-import { rankDiscards, readOpponents } from '../../src/engine/analysis'
+import { claimAnalysis, rankDiscards, readOpponents } from '../../src/engine/analysis'
 import type { PlayerView } from '../../src/engine/game'
 import { shanten } from '../../src/engine/shanten'
 import { tileName } from '../../src/engine/tiles'
@@ -61,16 +61,38 @@ export function coachFacts(view: PlayerView): string {
   return lines.join('\n')
 }
 
+const claimLabel = (c: ReturnType<typeof claimAnalysis>[number]['claim']): string =>
+  c === 'win' ? 'WIN' : c === 'pung' ? 'PUNG' : c === 'kong' ? 'KONG' : `CHOW with ${c.chow.join(' ')}`
+
 export function buildCoachPrompt(body: unknown): { system: string; prompt: string } | null {
   if (typeof body !== 'object' || body === null) return null
   const view = validatePlayerView((body as Record<string, unknown>).view)
   if (!view) return null
-  const pending = view.pendingDiscard
-    ? `\nNote: ${SEAT_LABELS[view.pendingDiscard.from]} just discarded ${tileName(view.pendingDiscard.tile)} and it is claimable.`
-    : ''
+
+  // Claim decision moment: the question is "take it or pass", not "what do I discard".
+  const claims = claimAnalysis(view)
+  if (view.pendingDiscard && claims.length > 0) {
+    const lines = claims.map(
+      (c) =>
+        `  ${claimLabel(c.claim)} -> ${
+          c.shantenAfter === -1 ? 'WINS THE HAND' : `shanten ${c.shantenBefore} -> ${c.shantenAfter}`
+        }${c.recommended ? ' (advances the hand)' : ' (does NOT advance the hand)'}`,
+    )
+    return {
+      system: COACH_SYSTEM,
+      prompt: `${coachFacts(view)}
+
+CLAIM DECISION: ${SEAT_LABELS[view.pendingDiscard.from]} just discarded ${tileName(view.pendingDiscard.tile)}. Engine-computed options (DO NOT recompute):
+${lines.join('\n')}
+  PASS -> stay at shanten ${claims[0].shantenBefore}, keep the hand concealed
+
+In 50 words or fewer: say whether to claim or pass and why — weigh advancing the hand against exposing melds and giving up concealment. No preamble.`,
+    }
+  }
+
   return {
     system: COACH_SYSTEM,
-    prompt: `${coachFacts(view)}${pending}
+    prompt: `${coachFacts(view)}
 
 In 60 words or fewer: name the best discard and why (use the engine ranking), then ONE defensive note about the most threatening opponent. No preamble, no recomputation.`,
   }

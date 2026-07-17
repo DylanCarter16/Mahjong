@@ -3,6 +3,7 @@
 // calling the engine — no rule is ever re-encoded here.
 
 import { scoreBest, winDeclarable, type ScoringContext } from '../engine/fan'
+import type { PlayerView } from '../engine/game'
 import { shuffle, type Rng } from '../engine/rng'
 import { shanten } from '../engine/shanten'
 import { ALL_PLAY_KINDS, isHonour, sortTiles, suitOf, tileName } from '../engine/tiles'
@@ -43,6 +44,8 @@ export interface LessonItem {
   exercise: ItemExercise
   /** Engine-fact explanation shown after the one allowed answer. */
   explain: string
+  /** For items generated from a game position: the board to show (pools, melds, hand). */
+  board?: PlayerView
 }
 
 const pick = <T,>(xs: readonly T[], rng: Rng): T => xs[Math.floor(rng.next() * xs.length)]
@@ -145,7 +148,9 @@ export function genRecognition(difficulty: Difficulty, rng: Rng): LessonItem {
   return {
     concept,
     difficulty,
-    timeLimitMs: [3000, 2200, 1500][difficulty - 1],
+    // Generous at first — speed still counts (fast answers earn more mastery),
+    // but the clock should pressure, not ambush.
+    timeLimitMs: [6000, 4500, 3000][difficulty - 1],
     exercise: {
       kind: 'choice',
       prompt: 'Name this tile',
@@ -386,6 +391,7 @@ export function genSuitRead(difficulty: Difficulty, rng: Rng): LessonItem {
     difficulty,
     exercise: { kind: 'choice', prompt: q.prompt, options: q.options, correct: q.correct },
     explain: q.explain,
+    board: pos.view, // the question is unanswerable without the pools
   }
 }
 
@@ -404,6 +410,7 @@ export function genSafeTile(difficulty: Difficulty, rng: Rng): LessonItem {
       correct: q.correct,
     },
     explain: q.explain,
+    board: pos.view, // the question is unanswerable without the pools
   }
 }
 

@@ -7,5 +7,8 @@ import { createHandler } from './_lib/handler'
 export default createHandler({
   buildPrompt: buildReviewPrompt,
   model: 'claude-sonnet-5',
-  maxTokens: 700,
+  // Quality path with a reliability net: if Sonnet errors, refuses, or
+  // returns a textless completion, Haiku still delivers a review.
+  fallbackModel: 'claude-haiku-4-5-20251001',
+  maxTokens: 1600,
 })

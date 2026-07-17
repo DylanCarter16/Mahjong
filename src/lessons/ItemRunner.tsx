@@ -3,8 +3,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { sortTiles } from '../engine/tiles'
-import type { TileId } from '../engine/types'
+import { SEATS, type Seat, type TileId } from '../engine/types'
 import { isValidChow, isValidPung } from '../engine/win'
+import { DiscardPool, MeldRow, SEAT_NAMES } from '../ui/panels'
 import { TileView } from '../ui/TileView'
 import { conceptProse } from './explain'
 import type { LessonItem } from './generators'
@@ -30,6 +31,8 @@ export function ItemRunner({ item, askConfidence = false, onDone }: {
   const [pendingCorrect, setPendingCorrect] = useState<boolean | null>(null)
   const [revealed, setRevealed] = useState<ItemResult | null>(null)
   const [timeLeft, setTimeLeft] = useState<number | null>(item.timeLimitMs ? item.timeLimitMs / 1000 : null)
+  // Timed items never ambush: they wait behind a "ready?" tap.
+  const [armed, setArmed] = useState(!item.timeLimitMs)
 
   const finish = (correct: boolean, confidence?: Confidence) =>
     setRevealed({ correct, ms: Date.now() - start.current, ...(confidence ? { confidence } : {}) })
@@ -41,7 +44,7 @@ export function ItemRunner({ item, askConfidence = false, onDone }: {
 
   // Countdown for timed items — expiry counts as wrong.
   useEffect(() => {
-    if (!item.timeLimitMs || revealed || pendingCorrect !== null) return
+    if (!item.timeLimitMs || !armed || revealed || pendingCorrect !== null) return
     const t = setInterval(() => {
       const left = (item.timeLimitMs! - (Date.now() - start.current)) / 1000
       if (left <= 0) {
@@ -52,11 +55,33 @@ export function ItemRunner({ item, askConfidence = false, onDone }: {
     }, 100)
     return () => clearInterval(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item, revealed, pendingCorrect])
+  }, [item, armed, revealed, pendingCorrect])
 
   const ex = item.exercise
 
   const groupedIdx = useMemo(() => new Set(groups.flat()), [groups])
+
+  // All hooks are above this line — the ready-gate return must not skip any.
+  if (!armed) {
+    return (
+      <div className="flex w-full flex-col items-center gap-4 py-8">
+        <p className="text-xs uppercase tracking-wide text-parchment-dim">{item.concept}</p>
+        <p className="font-serif text-lg text-parchment">Timed question</p>
+        <p className="text-sm text-parchment-dim">
+          You'll have {(item.timeLimitMs! / 1000).toFixed(0)} seconds. Fast, correct answers earn the most mastery.
+        </p>
+        <button
+          className={`${btn} bg-accent text-on-accent`}
+          onClick={() => {
+            start.current = Date.now()
+            setArmed(true)
+          }}
+        >
+          I'm ready
+        </button>
+      </div>
+    )
+  }
 
   const answerChoice = (i: number) => {
     if (revealed || pendingCorrect !== null || ex.kind !== 'choice') return
@@ -122,6 +147,28 @@ export function ItemRunner({ item, askConfidence = false, onDone }: {
           </span>
         )}
       </div>
+
+      {item.board && (
+        <div className="flex w-full flex-col gap-2">
+          <div className="grid w-full gap-2 rounded-2xl bg-felt p-3 sm:grid-cols-3">
+            {SEATS.filter((s) => s !== item.board!.seat).map((seat) => (
+              <div key={seat} className="flex flex-col items-center gap-1 rounded-xl bg-felt-deep/50 p-2">
+                <span className="text-xs text-parchment-dim">
+                  {SEAT_NAMES[seat as Seat]} · {item.board!.discards[seat as Seat].length} discards
+                </span>
+                <DiscardPool view={item.board!} seat={seat as Seat} numbered />
+                <MeldRow melds={item.board!.melds[seat as Seat]} numbered small />
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-0.5 rounded-xl bg-felt p-2">
+            <span className="mr-2 text-xs text-parchment-dim">your hand:</span>
+            {item.board.concealed.map((t, i) => (
+              <TileView key={i} tile={t} size="sm" numbered />
+            ))}
+          </div>
+        </div>
+      )}
 
       <p className="text-center text-lg font-medium text-parchment">{ex.prompt}</p>
 

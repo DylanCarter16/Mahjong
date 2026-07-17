@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CloseIcon, SparkleIcon } from '../ui/icons'
-import { rankDiscards, readOpponents } from '../engine/analysis'
+import { claimAnalysis, rankDiscards, readOpponents, type ClaimEval } from '../engine/analysis'
 import type { GameState, PlayerView } from '../engine/game'
 import { glyph, tileName } from '../engine/tiles'
 import { requestCoach, requestReview, type AnalysisResult } from './client'
@@ -42,12 +42,22 @@ export function AnalysisPanel({ view, state, byoKey }: {
 
   // The instant local layer: engine facts render at ~0ms; prose is a bonus.
   const facts = useMemo(() => {
-    if (!open || !myDiscardTurn) return null
-    const ranked = rankDiscards(view).slice(0, 6)
-    const reads = readOpponents(view)
-    const threat = reads.reduce((a, b) => (b.threat > a.threat ? b : a))
-    return { ranked, threat }
+    if (!open) return null
+    if (myDiscardTurn) {
+      const ranked = rankDiscards(view).slice(0, 6)
+      const reads = readOpponents(view)
+      const threat = reads.reduce((a, b) => (b.threat > a.threat ? b : a))
+      return { kind: 'discard' as const, ranked, threat }
+    }
+    // Claim decision: someone discarded and we could take it.
+    const claims = claimAnalysis(view)
+    if (claims.length > 0 && view.pendingDiscard) {
+      return { kind: 'claim' as const, claims, tile: view.pendingDiscard.tile }
+    }
+    return null
   }, [open, myDiscardTurn, view])
+
+  const decisionMoment = myDiscardTurn || facts?.kind === 'claim'
 
   useEffect(() => {
     if (cooldown <= 0) return
@@ -86,18 +96,18 @@ export function AnalysisPanel({ view, state, byoKey }: {
     setBusy(false)
   }
 
-  // Prefetch: fire the coach as soon as it becomes my turn — but only while
-  // the panel is open (deliberate: auto-firing every turn with the panel
-  // closed would burn the shared rate limit for prose nobody is reading).
+  // Prefetch: fire the coach the moment a decision arrives (my discard turn
+  // OR a claimable tile on the table) — but only while the panel is open
+  // (auto-firing with the panel closed would burn the rate limit unseen).
   useEffect(() => {
-    if (!open || !myDiscardTurn) return
+    if (!open || !decisionMoment) return
     void runCoach(false)
     return () => {
-      // My turn ended (discard happened): cancel a stale in-flight request.
+      // The moment passed: cancel a stale in-flight request.
       if (inFlight.current?.key === key) inFlight.current.ctl.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, myDiscardTurn, key])
+  }, [open, decisionMoment, key])
 
   useEffect(() => () => inFlight.current?.ctl.abort(), [])
 
@@ -144,7 +154,30 @@ export function AnalysisPanel({ view, state, byoKey }: {
         </button>
       </div>
 
-      {facts && (
+      {facts?.kind === 'claim' && (
+        <div className="mt-2 rounded-lg border border-accent/40 bg-felt/60 p-2 text-xs">
+          <p className="mb-1 font-semibold text-parchment">
+            {glyph(facts.tile)} {tileName(facts.tile)} is on the table — claim it?
+          </p>
+          {facts.claims.map((c: ClaimEval, i: number) => (
+            <p key={i} className={c.recommended ? 'text-safe' : 'text-parchment-dim'}>
+              {c.claim === 'win'
+                ? 'WIN'
+                : c.claim === 'pung'
+                  ? 'Pung'
+                  : c.claim === 'kong'
+                    ? 'Kong'
+                    : `Chow (${c.claim.chow.map(glyph).join('')})`}
+              {' — '}
+              {c.shantenAfter === -1
+                ? 'wins the hand!'
+                : `shanten ${c.shantenBefore} → ${c.shantenAfter}${c.recommended ? '' : ' (no progress — passing keeps you concealed)'}`}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {facts?.kind === 'discard' && (
         <div className="mt-2 overflow-x-auto">
           <table className="w-full text-xs">
             <thead>

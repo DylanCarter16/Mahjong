@@ -38,6 +38,16 @@ async function handle(
   const m = url.match(/^\/api\/(coach|review)(?:\?|$)/)
   if (!m) return next()
   try {
+    // Lazy env mirror: pick up ANTHROPIC_API_KEY from .env/.env.local even if
+    // the file was created after the dev server started.
+    if (!process.env.ANTHROPIC_API_KEY) {
+      const env = loadEnv(server.config.mode, server.config.root, '')
+      if (env.ANTHROPIC_API_KEY) process.env.ANTHROPIC_API_KEY = env.ANTHROPIC_API_KEY
+      else
+        server.config.logger.warn(
+          '[dev-api] no ANTHROPIC_API_KEY found in the environment or .env/.env.local — the coach will answer "not configured" unless a BYO key header is sent',
+        )
+    }
     let raw = ''
     for await (const chunk of req) raw += chunk
     let body: unknown

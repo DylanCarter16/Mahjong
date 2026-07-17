@@ -8,5 +8,5 @@ export default createHandler({
   buildPrompt: buildCoachPrompt,
   model: 'claude-haiku-4-5-20251001',
   fallbackModel: 'claude-sonnet-5',
-  maxTokens: 500,
+  maxTokens: 700,
 })
