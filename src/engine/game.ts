@@ -20,10 +20,12 @@ import { defaultFanTable } from './fanTable'
 import { makeRng } from './rng'
 import { isBonus, isSuit, rankOf, sortTiles } from './tiles'
 import { nextSeat, SEATS, type Meld, type Seat, type TileId, type Wind } from './types'
-import { buildWall } from './wall'
+import { buildWall, DEAD_WALL_SIZE } from './wall'
 import { decompose } from './win'
 
-export const DEAD_WALL = 14
+// One name for the positional dead wall (audit L9): re-exported from wall.ts,
+// the module that owns it.
+const DEAD_WALL = DEAD_WALL_SIZE
 
 export interface RuleConfig {
   faanMinimum: 0 | 1 | 3

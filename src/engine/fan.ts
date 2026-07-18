@@ -61,6 +61,34 @@ function isNineGates(d: Decomposition, ctx: ScoringContext): boolean {
   return true // 14 one-suit tiles ⊇ 1112345678999 is exactly base + 1 extra
 }
 
+/**
+ * Every faan pattern name the scorer can emit. The coach proxy allowlists
+ * client-supplied `fan.patterns[].name` against this set (audit L1), so no
+ * free-text client string can ride into the review prompt.
+ */
+export const FAN_PATTERN_NAMES: ReadonlySet<string> = new Set([
+  'All Chows',
+  'All Honours',
+  'All Kongs',
+  'All Pungs',
+  'Flower Set',
+  'Great Dragons',
+  'Great Winds',
+  'Kong Replacement',
+  'Last Wall Tile',
+  'Mixed One Suit',
+  'Nine Gates',
+  'Own Flowers',
+  'Pure One Suit',
+  'Round Wind',
+  'Seat Wind',
+  'Self-draw',
+  'Seven Pairs',
+  'Small Dragons',
+  'Small Winds',
+  'Thirteen Orphans',
+])
+
 export function score(d: Decomposition, ctx: ScoringContext): FanResult {
   const table = ctx.table ?? defaultFanTable
   const patterns: { name: string; faan: number }[] = []

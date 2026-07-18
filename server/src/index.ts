@@ -11,6 +11,7 @@
 
 import { isValidRoomCode, makeRoomCode, normalizeRoomCode } from '../../src/room/codes'
 import type { Env } from './env'
+import { timingSafeEqual } from './util'
 
 export { RoomDO } from './RoomDO'
 
@@ -40,7 +41,9 @@ export default {
     if (!isValidRoomCode(code)) return json({ error: 'bad room code' }, 400, cors)
 
     if (route === 'debug' || route === 'reset') {
-      if (!env.ADMIN_KEY || request.headers.get('x-admin-key') !== env.ADMIN_KEY) {
+      const supplied = request.headers.get('x-admin-key')
+      // Constant-time compare (audit L5) and require the key to be configured.
+      if (!env.ADMIN_KEY || supplied === null || !timingSafeEqual(supplied, env.ADMIN_KEY)) {
         return json({ error: 'not found' }, 404, cors)
       }
       if (route === 'reset' && request.method !== 'POST') {

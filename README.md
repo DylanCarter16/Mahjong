@@ -208,11 +208,19 @@ client-supplied prompt/model/messages.
 
 In multiplayer the coach is exposed to strangers spending the host's key, so:
 it's a **host setting** (default on, shown in the lobby rule summary and visible
-to the room); the proxy rate-limits **per room** as well as per IP; and the
-**bring-your-own-key** hatch is surfaced in the lobby (memory only, never saved,
-never sent to the game server) to skip the shared limit. When the coach is off,
-the **local ranked-discard table** — computed by the engine, free and instant —
-still shows. Uses `claude-fable-5`, falls back to `claude-opus-4-8`.
+to the room); the proxy rate-limits per real IP (`x-real-ip`), per room, and
+under a **global daily ceiling** independent of IP; a malformed BYO key is
+rejected before any upstream call; and the **bring-your-own-key** hatch is
+surfaced in the lobby (memory only, never saved, never sent to the game server)
+to skip the shared limit. When the coach is off, the **local ranked-discard
+table** — computed by the engine, free and instant — still shows. Uses
+`claude-fable-5`, falls back to `claude-opus-4-8`.
+
+> **Deploy note:** the in-memory limiters are per warm serverless instance, so
+> the daily ceiling is a true global cap only once the counters are moved to
+> shared storage (Vercel KV / Upstash) — the `Limiter` interface is the drop-in
+> seam. For the game server, add Cloudflare rate-limiting rules on
+> `/api/rooms/*/info` and `/ws`. See `docs/AUDIT-RESPONSE.md`.
 
 ## Rules implemented & documented decisions
 

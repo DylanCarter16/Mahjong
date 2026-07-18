@@ -18,6 +18,10 @@ export type Seat = 0 | 1 | 2 | 3
 
 export const SEATS: readonly Seat[] = [0, 1, 2, 3]
 
+/** Runtime guard for an untrusted seat value — reject anything that isn't a
+ *  real seat index before using it as an object key (audit L4). */
+export const isSeat = (v: unknown): v is Seat => v === 0 || v === 1 || v === 2 || v === 3
+
 export const nextSeat = (s: Seat): Seat => (((s + 1) % 4) as Seat)
 
 export type MeldType = 'chow' | 'pung' | 'kong'

@@ -1,5 +1,13 @@
-// Seedable RNG: xmur3 string hash feeding mulberry32. In-repo (~20 lines)
-// instead of a dependency; games are reproducible from a string seed.
+// Seedable RNG: xmur3 string hash feeding sfc32. In-repo (~25 lines) instead of
+// a dependency; games are reproducible from a string seed.
+//
+// SECURITY (audit H1): the production wall seed is 256 bits of crypto entropy
+// (codes.ts makeSecretSeed), and this PRNG carries a 128-bit state — four
+// distinct 32-bit words mixed out of the seed by xmur3. That puts the wall at
+// 1-of-2^128 arrangements: not enumerable, so a player CANNOT brute-force the
+// shuffle from their own opening hand to reveal hidden tiles. (The earlier
+// mulberry32 had a 32-bit state — only ~4.3e9 walls — which WAS brute-forceable.
+// Do not shrink the state back to one word.)
 
 export interface Rng {
   next(): number // uniform in [0, 1)
@@ -21,14 +29,25 @@ function xmur3(str: string): () => number {
 
 export function makeRng(seed: string): Rng {
   const seedFn = xmur3(seed)
+  // sfc32: 128-bit state, seeded from four hash words of the full seed string.
   let a = seedFn()
+  let b = seedFn()
+  let c = seedFn()
+  let d = seedFn()
   return {
     next() {
-      a |= 0
-      a = (a + 0x6d2b79f5) | 0
-      let t = Math.imul(a ^ (a >>> 15), 1 | a)
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+      a >>>= 0
+      b >>>= 0
+      c >>>= 0
+      d >>>= 0
+      let t = (a + b) | 0
+      a = b ^ (b >>> 9)
+      b = (c + (c << 3)) | 0
+      c = (c << 21) | (c >>> 11)
+      d = (d + 1) | 0
+      t = (t + d) | 0
+      c = (c + t) | 0
+      return (t >>> 0) / 4294967296
     },
   }
 }
