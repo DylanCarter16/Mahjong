@@ -1,93 +1,140 @@
-import { useState } from 'react'
-import { ExerciseRunner } from './ExerciseRunner'
-import { UNITS } from './exercises'
+// The course home: streak/XP/goal, one primary CTA (start a session), the two
+// trainers, and a unit map of concept mastery. Calm paper surface — the felt
+// stays at the table.
+
+import { useRef, useState } from 'react'
+import { DownloadIcon, FlameIcon, LockIcon, UploadIcon } from '../ui/icons'
+import { CONCEPTS } from './concepts'
+import { DAILY_GOAL, isUnlocked, masteryOf } from './mastery'
 import { QuizScreen } from './QuizScreen'
+import { SessionScreen } from './SessionScreen'
 import { TrainerScreen } from './TrainerScreen'
+import { useProgress } from './useProgress'
 
-type Screen = 'list' | 'trainer' | 'quiz' | number // number = running unit id
+type Screen = 'home' | 'session' | 'trainer' | 'quiz'
 
-export function LessonScreen({ completed, onCompleteUnit }: {
-  completed: Set<number>
-  onCompleteUnit: (id: number) => void
-}) {
-  const [screen, setScreen] = useState<Screen>('list')
+const UNIT_TITLES: Record<number, string> = {
+  1: 'Tiles & suits',
+  2: 'Sets',
+  3: 'The winning shape',
+  4: 'Special hands',
+  5: 'Faan & the minimum',
+  6: 'Efficiency & reading',
+  7: 'Defence',
+  8: 'At the table',
+}
 
-  if (screen === 'trainer') return <TrainerScreen onExit={() => setScreen('list')} />
-  if (screen === 'quiz') return <QuizScreen onExit={() => setScreen('list')} />
-  if (typeof screen === 'number') {
-    const unit = UNITS.find((u) => u.id === screen)!
-    return (
-      <ExerciseRunner
-        exercises={unit.exercises()}
-        onExit={() => setScreen('list')}
-        onComplete={() => {
-          onCompleteUnit(unit.id)
-          setScreen('list')
-        }}
-      />
-    )
-  }
+export function LessonScreen() {
+  const { progress, update, exportProgress, importProgress } = useProgress()
+  const [screen, setScreen] = useState<Screen>('home')
+  const fileRef = useRef<HTMLInputElement>(null)
 
-  const allUnitsDone = UNITS.every((u) => completed.has(u.id))
+  if (screen === 'session') return <SessionScreen progress={progress} update={update} onExit={() => setScreen('home')} />
+  if (screen === 'trainer') return <TrainerScreen progress={progress} update={update} onExit={() => setScreen('home')} />
+  if (screen === 'quiz') return <QuizScreen progress={progress} update={update} onExit={() => setScreen('home')} />
+
+  const units = [...new Set(CONCEPTS.map((c) => c.unit))].sort((a, b) => a - b)
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-4 p-4">
+    <div className="mx-auto flex max-w-2xl flex-col gap-5 p-4 pb-16">
+      <div className="flex items-center justify-between rounded-2xl border border-paper-line bg-paper-raised px-4 py-3">
+        <div className="flex items-center gap-2 text-consider">
+          <FlameIcon className="h-5 w-5" />
+          <span className="tabular font-serif text-xl font-bold">{progress.streak.count}</span>
+          <span className="text-xs text-parchment-dim">day streak</span>
+        </div>
+        <div className="tabular text-sm text-parchment-dim">
+          {Math.min(progress.today.count, DAILY_GOAL)}/{DAILY_GOAL} today
+        </div>
+        <div className="tabular font-serif text-xl font-bold text-parchment">
+          {progress.xp} <span className="font-sans text-xs font-normal text-parchment-dim">xp</span>
+        </div>
+      </div>
+
+      <button
+        className="cursor-pointer rounded-2xl bg-accent px-4 py-3.5 font-serif text-lg font-bold text-on-accent transition-colors duration-(--duration-ui) hover:brightness-110"
+        onClick={() => setScreen('session')}
+      >
+        Start a session
+      </button>
+      <p className="-mt-3 text-center text-xs text-parchment-dim">
+        ~13 items: due reviews first, weakest concepts, a little new material.
+      </p>
+
       <div className="grid gap-3 sm:grid-cols-2">
         <button
-          className="rounded-2xl border border-amber-500/50 bg-amber-500/10 p-4 text-left hover:bg-amber-500/20 cursor-pointer"
+          className="cursor-pointer rounded-2xl border border-paper-line bg-paper-raised p-4 text-left transition-colors duration-(--duration-ui) hover:border-parchment-dim"
           onClick={() => setScreen('trainer')}
         >
-          <div className="text-lg font-bold text-amber-300">🀄 Tile efficiency trainer</div>
-          <p className="mt-1 text-sm text-emerald-200/80">
-            Endless generated hands. Pick a discard, get graded — optimal, acceptable or bad — and see why.
+          <div className="font-serif text-lg font-bold text-parchment">Tile efficiency trainer</div>
+          <p className="mt-1 text-sm text-parchment-dim">
+            Endless hands, graded on a curve, with the full ranked table and your error patterns.
           </p>
         </button>
         <button
-          className="rounded-2xl border border-sky-500/50 bg-sky-500/10 p-4 text-left hover:bg-sky-500/20 cursor-pointer"
+          className="cursor-pointer rounded-2xl border border-paper-line bg-paper-raised p-4 text-left transition-colors duration-(--duration-ui) hover:border-parchment-dim"
           onClick={() => setScreen('quiz')}
         >
-          <div className="text-lg font-bold text-sky-300">🔍 Discard-reading quiz</div>
-          <p className="mt-1 text-sm text-emerald-200/80">
-            Real mid-game positions: work out what opponents are collecting and which tile is safe.
+          <div className="font-serif text-lg font-bold text-parchment">Discard-reading quiz</div>
+          <p className="mt-1 text-sm text-parchment-dim">
+            Real positions, progressive reveal, confidence grading — then see what was actually in their hands.
           </p>
         </button>
       </div>
 
-      <h2 className="mt-2 text-sm font-semibold uppercase tracking-wide text-emerald-300/70">
-        Lessons {allUnitsDone && '— all complete 🎓'}
-      </h2>
-      <ol className="flex flex-col gap-2">
-        {UNITS.map((u, i) => {
-          const done = completed.has(u.id)
-          const locked = i > 0 && !completed.has(UNITS[i - 1].id)
-          return (
-            <li key={u.id}>
-              <button
-                disabled={locked}
-                onClick={() => setScreen(u.id)}
-                className={`w-full rounded-xl border p-3 text-left transition-colors ${
-                  locked
-                    ? 'cursor-not-allowed border-emerald-800 bg-emerald-950/50 opacity-50'
-                    : done
-                      ? 'cursor-pointer border-lime-600/60 bg-lime-500/10 hover:bg-lime-500/20'
-                      : 'cursor-pointer border-emerald-700 bg-emerald-900/60 hover:bg-emerald-800'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold">
-                    {u.id}. {u.title}
-                  </span>
-                  <span className="text-sm">{done ? '✓' : locked ? '🔒' : '→'}</span>
-                </div>
-                <p className="mt-0.5 text-sm text-emerald-200/70">{u.blurb}</p>
-              </button>
-            </li>
-          )
-        })}
+      <h2 className="mt-2 text-xs font-semibold uppercase tracking-wide text-parchment-dim">The terrain</h2>
+      <ol className="flex flex-col gap-3">
+        {units.map((u) => (
+          <li key={u} className="rounded-2xl border border-paper-line bg-paper-raised p-3">
+            <div className="mb-2 font-serif font-semibold text-parchment">
+              {u}. {UNIT_TITLES[u]}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {CONCEPTS.filter((c) => c.unit === u).map((c) => {
+                const unlocked = isUnlocked(progress, c.id)
+                const m = masteryOf(progress, c.id)
+                return (
+                  <div key={c.id} className={`flex items-center gap-2 text-sm ${unlocked ? '' : 'opacity-45'}`}>
+                    <span className="w-44 truncate text-parchment">{c.title}</span>
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-paper">
+                      <div
+                        className={`h-full rounded-full ${m >= 0.7 ? 'bg-safe' : m >= 0.35 ? 'bg-consider' : 'bg-parchment-dim'}`}
+                        style={{ width: `${Math.max(2, m * 100)}%` }}
+                      />
+                    </div>
+                    <span className="tabular flex w-10 items-center justify-end text-right text-xs text-parchment-dim">
+                      {unlocked ? `${Math.round(m * 100)}%` : <LockIcon className="h-3.5 w-3.5" />}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </li>
+        ))}
       </ol>
-      <p className="text-xs text-emerald-300/50">
-        Progress lives in this browser tab — refreshing starts the course over (by design: no storage).
-      </p>
+
+      <div className="flex items-center gap-3 text-xs text-parchment-dim">
+        <button className="flex cursor-pointer items-center gap-1 hover:text-parchment" onClick={exportProgress}>
+          <DownloadIcon className="h-3.5 w-3.5" /> export progress
+        </button>
+        <button className="flex cursor-pointer items-center gap-1 hover:text-parchment" onClick={() => fileRef.current?.click()}>
+          <UploadIcon className="h-3.5 w-3.5" /> import
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (!f) return
+            void f.text().then((t) => {
+              if (!importProgress(t)) window.alert('That file is not a valid progress export.')
+            })
+          }}
+        />
+        <span className="ml-auto">Progress is saved in this browser. Export it to move devices.</span>
+      </div>
     </div>
   )
 }

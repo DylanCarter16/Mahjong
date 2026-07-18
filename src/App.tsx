@@ -15,7 +15,6 @@ const tabCls = (active: boolean) =>
 export default function App() {
   const [tab, setTab] = useState<Tab>('play')
   const [settings, setSettings] = useState<Settings>(defaultSettings)
-  const [completedUnits, setCompletedUnits] = useState<Set<number>>(new Set())
   const [hash, setHash] = useState(window.location.hash)
 
   useEffect(() => {
@@ -27,8 +26,14 @@ export default function App() {
   // Static design-gate page: /#/gallery
   if (hash === '#/gallery') return <GalleryScreen />
 
+  // Play keeps the felt (emerald) surface; the lessons live on the calmer
+  // paper surface they were designed for.
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-950 via-emerald-900 to-emerald-950 text-emerald-50">
+    <div
+      className={`min-h-screen text-emerald-50 ${
+        tab === 'play' ? 'bg-gradient-to-br from-emerald-950 via-emerald-900 to-emerald-950' : 'bg-paper'
+      }`}
+    >
       <TileDefs />
       <nav className="flex items-center gap-3 px-4 pt-4">
         <h1 className="mr-2 text-lg font-bold tracking-tight">
@@ -42,14 +47,7 @@ export default function App() {
         </button>
       </nav>
       <main className="mx-auto max-w-6xl">
-        {tab === 'play' ? (
-          <PlayHub settings={settings} onChangeSettings={setSettings} />
-        ) : (
-          <LessonScreen
-            completed={completedUnits}
-            onCompleteUnit={(id) => setCompletedUnits((s) => new Set(s).add(id))}
-          />
-        )}
+        {tab === 'play' ? <PlayHub settings={settings} onChangeSettings={setSettings} /> : <LessonScreen />}
       </main>
     </div>
   )
