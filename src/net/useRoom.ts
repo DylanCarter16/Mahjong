@@ -98,21 +98,28 @@ export function useRoom(opts: JoinOptions | null): RoomControls {
       })
     }
 
-    if (opts.mode === 'create') {
-      createRoom()
-        .then((code) => {
-          if (cancelled) return
-          attach(joinRoom(code, opts.name))
-        })
-        .catch((e) =>
-          setState((s) => ({ ...s, status: 'ended', error: String(e instanceof Error ? e.message : e) })),
-        )
-    } else {
-      const code = (opts.code ?? '').trim()
-      attach(joinRoom(code, opts.name))
-      handle!.ready.catch((e) =>
-        setState((s) => ({ ...s, status: 'ended', error: String(e instanceof Error ? e.message : e) })),
-      )
+    const fail = (e: unknown) =>
+      setState((s) => ({ ...s, status: 'ended', error: String(e instanceof Error ? e.message : e) }))
+
+    // createRoom()/joinRoom() can throw synchronously if the server URL is
+    // misconfigured (serverBase() throws in a prod build with no
+    // VITE_GAME_SERVER) — catch that here so it surfaces as a clean error
+    // instead of an uncaught exception in the effect.
+    try {
+      if (opts.mode === 'create') {
+        createRoom()
+          .then((code) => {
+            if (cancelled) return
+            attach(joinRoom(code, opts.name))
+          })
+          .catch(fail)
+      } else {
+        const code = (opts.code ?? '').trim()
+        attach(joinRoom(code, opts.name))
+        handle!.ready.catch(fail)
+      }
+    } catch (e) {
+      fail(e)
     }
 
     return () => {

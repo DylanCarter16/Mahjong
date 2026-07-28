@@ -27,9 +27,27 @@ const HEARTBEAT_MS = 20_000
 const BACKOFF_MS = [500, 1000, 2000, 4000, 8000]
 const tokenKey = (code: string) => `mahjong.seat-token.${code}`
 
+/**
+ * The game server's HTTP base URL. WebSocket URLs are derived from it by
+ * swapping the scheme (http→ws, https→wss), so this is the single source of
+ * truth for where multiplayer talks to.
+ *
+ * It comes from the `VITE_GAME_SERVER` build-time env var. In a dev build it
+ * defaults to the local `wrangler dev` server. In a PRODUCTION build an unset
+ * value is a deploy misconfiguration, so we throw a clear error rather than
+ * silently dialing `localhost:8787` — which an https page can't even open
+ * (mixed content) and which looks to the user like an unexplained network
+ * failure. Set it in the Vercel project and redeploy (see DEPLOY.md).
+ */
 export function serverBase(): string {
-  const configured = import.meta.env.VITE_GAME_SERVER as string | undefined
-  return (configured ?? 'http://localhost:8787').replace(/\/$/, '')
+  const configured = (import.meta.env.VITE_GAME_SERVER as string | undefined)?.trim()
+  if (configured) return configured.replace(/\/$/, '')
+  if (import.meta.env.DEV) return 'http://localhost:8787'
+  throw new Error(
+    'Multiplayer server not configured: VITE_GAME_SERVER is unset in this build. ' +
+      'Set it to your game server URL (e.g. https://mahjong-server.<subdomain>.workers.dev) ' +
+      'in the Vercel project settings and redeploy.',
+  )
 }
 
 export async function createRoom(base = serverBase()): Promise<string> {

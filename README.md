@@ -163,7 +163,7 @@ Config lives in `server/wrangler.jsonc`. Environment:
 
 | Name | Where | Purpose |
 | --- | --- | --- |
-| `VITE_GAME_SERVER` | front-end build/dev env | URL of the game server the browser opens a socket to (e.g. your `*.workers.dev`). Unset ⇒ `http://localhost:8787`. |
+| `VITE_GAME_SERVER` | front-end build/dev env | URL of the game server the browser opens a socket to (e.g. your `*.workers.dev`). Unset in a **dev** build ⇒ `http://localhost:8787`; unset in a **prod** build ⇒ the app throws a clear "not configured" error at connect time (it will not silently dial localhost). |
 | `ALLOWED_ORIGINS` | worker `vars` | comma-separated browser origins allowed to connect. Empty ⇒ allow any (dev posture; set your front-end origin in production). |
 | `ADMIN_KEY` | worker **secret** | gates the `/debug` state dump and `/reset` escape hatches. Unset ⇒ those routes are disabled. Set with `npx wrangler secret put ADMIN_KEY -c server/wrangler.jsonc`. |
 | `ANTHROPIC_API_KEY` | the **coach proxy** (Vercel), not the game server | the shared coach key. The game server never touches it — the two systems are separate on purpose. |
@@ -171,6 +171,10 @@ Config lives in `server/wrangler.jsonc`. Environment:
 The front end deploys as today (Vercel/static). The coach proxy stays on Vercel
 functions (`api/`). Only the sockets live on Cloudflare, so two providers — the
 front end + coach on one, the game server on the other.
+
+**Deploying multiplayer to production** — wiring the two hosts together, the exact
+env vars to set, and a real two-device smoke test — is its own runbook:
+[`DEPLOY.md`](DEPLOY.md). `.env.example` documents the front-end var.
 
 **Debugging a stuck room at 2am:** `npm run server:tail` for logs;
 `GET /api/rooms/<CODE>/debug` (with `x-admin-key`) dumps the room's full
