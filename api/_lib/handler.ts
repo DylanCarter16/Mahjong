@@ -128,10 +128,23 @@ export function createHandler(cfg: EndpointConfig) {
 
       const wantStream = req.query?.stream === '1'
       if (wantStream) {
-        res.status(200)
         res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
         res.setHeader('Cache-Control', 'no-cache')
         res.setHeader('Connection', 'keep-alive')
+        res.status(200)
+        // A stream write can fail mid-flight — the client navigated away or the
+        // socket dropped (the in-game coach aborts on every view change). A raw
+        // throw here used to unwind into the catch below, which then tried to
+        // set a 500 status AFTER the SSE headers were already committed; that
+        // second throw was uncaught and reached the client as an opaque
+        // platform HTTP 500. Swallow write failures so the stream just ends.
+        const sse = (obj: unknown) => {
+          try {
+            res.write(`data: ${JSON.stringify(obj)}\n\n`)
+          } catch {
+            /* client gone — nothing more to send */
+          }
+        }
         const outcome = await streamCompletion({
           apiKey,
           model: cfg.model,
@@ -139,12 +152,14 @@ export function createHandler(cfg: EndpointConfig) {
           system: built.system,
           prompt: built.prompt,
           maxTokens: cfg.maxTokens,
-          onDelta: (text) => res.write(`data: ${JSON.stringify({ text })}\n\n`),
+          onDelta: (text) => sse({ text }),
         })
-        res.write(
-          `data: ${JSON.stringify(outcome.ok ? { done: true, model: outcome.model } : { error: outcome.error })}\n\n`,
-        )
-        res.end()
+        sse(outcome.ok ? { done: true, model: outcome.model } : { error: outcome.error })
+        try {
+          res.end()
+        } catch {
+          /* already closed */
+        }
         return
       }
 
@@ -166,8 +181,19 @@ export function createHandler(cfg: EndpointConfig) {
       }
       res.status(200).json({ text: full, model: outcome.model })
     } catch {
-      // Never leak internals (or the key) into an error response.
-      res.status(500).json({ error: 'internal error' })
+      // Never leak internals (or the key) into an error response. And never try
+      // to set a status once the response has started streaming — that throws
+      // again and the client sees an opaque platform 500 instead of the real,
+      // already-sent SSE error.
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'internal error' })
+      } else {
+        try {
+          res.end()
+        } catch {
+          /* already closed */
+        }
+      }
     }
   }
 }
