@@ -1,18 +1,15 @@
-// The claim-window countdown (§7): a thin depleting ring, legible at a glance
-// without being stressful — never a big pulsing number. It wraps the claim
-// buttons. Latency only affects whether your claim lands, not whether you win
-// a contest (§5.1), so this is a gentle "soon" cue, not a hard guarantee; the
-// server is the authority on when the window actually closes.
+// The claim-window countdown (§7): a thin depleting bar laid out BENEATH the
+// claim buttons — never an overlay. The buttons keep their exact position and
+// size for the whole window, so a tap in the last half-second lands where the
+// user aimed; the bar only ever changes width, never reflows the row above it.
+// Latency only affects whether your claim lands, not whether you win a contest
+// (§5.1), so this is a gentle "soon" cue — the server is the real authority.
 //
-// Accessibility: honours prefers-reduced-motion. A moving/pulsing timer is
-// exactly the kind of thing that's hostile to some people (§7), so with
-// reduced motion we drop the sweep animation and show a calm static ring
-// plus an aria-live seconds count that updates once per second.
+// Accessibility: honours prefers-reduced-motion. With reduced motion we drop
+// the smooth sweep (the bar steps once per second instead) and surface a visible
+// numeric seconds count, plus an aria-live readout for screen readers.
 
 import { useEffect, useRef, useState } from 'react'
-
-const RADIUS = 22
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 
 function prefersReducedMotion(): boolean {
   return (
@@ -24,7 +21,7 @@ function prefersReducedMotion(): boolean {
 
 export function ClaimCountdown({
   durationMs,
-  /** Restart key: changing it (e.g. a new pending discard) resets the ring. */
+  /** Restart key: changing it (e.g. a new pending discard) resets the bar. */
   resetKey,
   children,
 }: {
@@ -58,34 +55,29 @@ export function ClaimCountdown({
     return () => cancelAnimationFrame(raf)
   }, [durationMs, resetKey, reduced])
 
-  const fraction = durationMs > 0 ? remaining / durationMs : 0
+  const fraction = durationMs > 0 ? Math.max(0, Math.min(1, remaining / durationMs)) : 0
   const seconds = Math.ceil(remaining / 1000)
 
   return (
-    <div className="relative inline-flex items-center justify-center">
-      <svg
-        className="pointer-events-none absolute -inset-1 h-[calc(100%+0.5rem)] w-[calc(100%+0.5rem)]"
-        viewBox="0 0 48 48"
-        preserveAspectRatio="none"
-        aria-hidden="true"
-      >
-        <circle cx="24" cy="24" r={RADIUS} fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-800/50" />
-        <circle
-          cx="24"
-          cy="24"
-          r={RADIUS}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          className="text-amber-300"
-          transform="rotate(-90 24 24)"
-          strokeDasharray={CIRCUMFERENCE}
-          strokeDashoffset={CIRCUMFERENCE * (1 - fraction)}
-        />
-      </svg>
+    <div className="flex w-full flex-col items-center gap-2">
       {children}
-      {/* Screen-reader + reduced-motion seconds readout; visually muted. */}
+      {/* Depleting bar UNDER the buttons — only its width animates, so the row
+          above never moves or resizes. */}
+      <div className="flex w-full max-w-xs items-center gap-2">
+        <div
+          className="h-1.5 flex-1 overflow-hidden rounded-full bg-emerald-800/50"
+          role="timer"
+          aria-hidden={reduced ? undefined : true}
+        >
+          <div
+            className="h-full rounded-full bg-amber-300"
+            style={{ width: `${fraction * 100}%` }}
+          />
+        </div>
+        {reduced && (
+          <span className="w-6 text-right text-xs tabular-nums text-amber-200/90">{seconds}s</span>
+        )}
+      </div>
       <span className="sr-only" aria-live="polite">
         {seconds} second{seconds === 1 ? '' : 's'} to claim
       </span>

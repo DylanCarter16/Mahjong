@@ -4,6 +4,7 @@
 // memory only, and skips the shared rate limit.
 
 import type { Action, PlayerView, RoundResult } from '../engine/game'
+import { cleanCoachText } from './coachText'
 
 export type AnalysisResult =
   | { ok: true; text: string; model?: string }
@@ -57,7 +58,7 @@ async function post(path: string, body: unknown, opts: RequestOptions): Promise<
     }
     const data = (await res.json().catch(() => ({}))) as { text?: string; model?: string; error?: string }
     if (!res.ok) return { ok: false, error: data.error ?? `Coach error (HTTP ${res.status}).` }
-    const text = stripFences(data.text ?? '')
+    const text = cleanCoachText(stripFences(data.text ?? ''))
     if (!text) return { ok: false, error: 'Empty response from the coach.' }
     // Callers may render incrementally via onDelta; hand them the full text once
     // so the coach panel updates exactly as before.

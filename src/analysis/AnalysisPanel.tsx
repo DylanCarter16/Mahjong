@@ -183,9 +183,11 @@ export function AnalysisPanel({ view, finished, byoKey, roomCode, coachEnabled =
 
       {coachEnabled ? (
         <div className="mt-3 flex flex-wrap gap-2">
+          {/* Calm treatment (not amber): the amber recommended-discard row above
+              is the signal that should own the one accent, not this button. */}
           <button
             disabled={busy || cooldown > 0 || roundOver}
-            className="min-h-11 rounded-lg bg-amber-400 px-4 py-2 font-semibold text-amber-950 hover:bg-amber-300 disabled:opacity-40 cursor-pointer"
+            className="min-h-11 rounded-lg border border-emerald-600 bg-emerald-700 px-4 py-2 font-semibold text-emerald-50 hover:bg-emerald-600 disabled:opacity-40 cursor-pointer"
             onClick={() => void runCoach(true)}
           >
             Analyse my hand
@@ -206,18 +208,31 @@ export function AnalysisPanel({ view, finished, byoKey, roomCode, coachEnabled =
         </p>
       )}
 
-      {coachEnabled && busy && !shownText && <p className="mt-3 animate-pulse text-emerald-200">Thinking…</p>}
-      {coachEnabled && result && !result.ok && (
-        <div className="mt-3 rounded-lg border border-rose-500 bg-rose-500/15 p-3 text-rose-100">
-          {result.error}
-          <button className="ml-2 underline cursor-pointer" onClick={() => setResult(null)}>dismiss</button>
-        </div>
-      )}
-      {coachEnabled && shownText && (
-        <div className="mt-3 whitespace-pre-wrap rounded-lg border border-emerald-600 bg-emerald-900/70 p-3 text-emerald-50">
-          {shownText}
-          {result?.ok && result.model && (
-            <div className="mt-2 text-right text-[0.65rem] text-emerald-400/60">{result.model}</div>
+      {/* One stable, min-height container for every coach-output state, so the
+          panel doesn't jump when "Thinking…" is replaced by the answer. */}
+      {coachEnabled && (busy || shownText || (result != null && !result.ok)) && (
+        <div
+          className={`mt-3 min-h-[4.5rem] whitespace-pre-wrap rounded-lg border p-3 ${
+            result != null && !result.ok
+              ? 'border-rose-500 bg-rose-500/15 text-rose-100'
+              : 'border-emerald-600 bg-emerald-900/70 text-emerald-50'
+          }`}
+          aria-live="polite"
+        >
+          {busy && !shownText && <span className="animate-pulse text-emerald-200">Thinking…</span>}
+          {result != null && !result.ok && (
+            <>
+              {result.error}
+              <button className="ml-2 underline cursor-pointer" onClick={() => setResult(null)}>dismiss</button>
+            </>
+          )}
+          {shownText && (
+            <>
+              {shownText}
+              {result?.ok && result.model && (
+                <div className="mt-2 text-right text-[0.65rem] text-emerald-400/60">{result.model}</div>
+              )}
+            </>
           )}
         </div>
       )}
