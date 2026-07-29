@@ -214,7 +214,7 @@ export function AnalysisPanel({
   // launcher here would be a button that opens an empty panel (§B3).
   if (!coachEnabled && !aidsEnabled) return null
 
-  const title = coachEnabled ? '✨ AI coach' : '🀄 Discard table'
+  const title = coachEnabled ? '✨ AI coach' : 'Discard table'
 
   if (!open) {
     return (

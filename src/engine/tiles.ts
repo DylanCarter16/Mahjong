@@ -48,20 +48,16 @@ export const isTerminal = (id: TileId): boolean =>
 export const suitOf = (id: TileId): Suit | null => (isSuit(id) ? (id[0] as Suit) : null)
 export const rankOf = (id: TileId): number | null => (isSuit(id) ? Number(id[1]) : null)
 
-// Unicode Mahjong Tiles block, U+1F000–U+1F02A. Zero image assets; a future
-// SVG tile set only needs to replace this function.
-export function glyph(id: TileId): string {
-  t(id)
-  const kind = id[0]
-  if (kind === 'w') return String.fromCodePoint(0x1f000 + WINDS.indexOf(id[1] as Wind))
-  if (kind === 'd') return String.fromCodePoint(0x1f004 + DRAGONS.indexOf(id[1] as (typeof DRAGONS)[number]))
-  if (kind === 'm') return String.fromCodePoint(0x1f007 + Number(id[1]) - 1)
-  if (kind === 's') return String.fromCodePoint(0x1f010 + Number(id[1]) - 1)
-  if (kind === 'p') return String.fromCodePoint(0x1f019 + Number(id[1]) - 1)
-  // bonus: flowers 🀢🀣🀤🀥 then seasons 🀦🀧🀨🀩 (Unicode codepoint order)
-  const idx = Number(id[2]) - 1
-  return String.fromCodePoint((id[1] === 'f' ? 0x1f022 : 0x1f026) + idx)
-}
+// NOTE (§D1): there is deliberately NO glyph(id) here any more.
+//
+// Tiles used to have two rendering paths — the procedural SVG <TileView>, and a
+// Unicode-mahjong-block character (U+1F000–U+1F02A) dropped inline as text. The
+// text path is the one that produced the red-dragon problem (🀄 renders as an
+// emoji on some platforms and as a tiny mono glyph on others), and it kept
+// resurfacing in corners: a trainer's threat pool, a claim button, a table
+// cell. Deleting the function is what makes "one rendering path" enforceable
+// rather than a convention. Everything that shows a tile calls <TileView>, and
+// a row of them calls <TilePool>.
 
 const WIND_NAMES: Record<Wind, string> = { E: 'East', S: 'South', W: 'West', N: 'North' }
 const DRAGON_NAMES: Record<string, string> = { R: 'Red', G: 'Green', W: 'White' }

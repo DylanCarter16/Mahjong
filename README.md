@@ -67,13 +67,16 @@ receive the same `PlayerView` and nothing else. Lessons never re-implement a rul
 Used everywhere (tests, serialisation, docs): `m1..m9` characters 萬, `p1..p9`
 circles 筒, `s1..s9` bamboo 索, `wE wS wW wN` winds, `dR dG dW` dragons,
 `bf1..bf4` flowers, `bs1..bs4` seasons. `hand("m1 m2 m3")` parses a list.
-Glyphs come from the Unicode mahjong block via `glyph()` — no image assets.
+Tiles are drawn by one component and one only: `<TileView>` (procedural SVG,
+`src/ui/tiles/`), with `<TilePool>` for a row of them. There is no text-glyph
+renderer — the Unicode mahjong block is not used for display anywhere, because a
+second path is how the red-dragon mismatch happened.
 
 ## Engine API tour
 
 | Module | Key exports | What it does |
 | --- | --- | --- |
-| `tiles.ts` | `t`, `hand`, `sortTiles`, `glyph`, `tileName`, classifiers | Tile model and parsing |
+| `tiles.ts` | `t`, `hand`, `sortTiles`, `tileName`, classifiers | Tile model and parsing |
 | `rng.ts` | `makeRng(seed)`, `shuffle` | Seedable RNG (mulberry32) — games are reproducible |
 | `wall.ts` | `buildWall({flowers}, rng)` | 144-tile wall (136 with flowers off), dead wall = last 14 |
 | `win.ts` | `decompose`, `isWinningHand`, `isValidChow/Pung/Kong` | Returns **every** valid reading of a hand (standard / seven pairs / thirteen orphans) |
