@@ -5,7 +5,8 @@
 // a retry, a CANCELLATION (turn moved on) is silent.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { requestReview } from '../client'
+import { COACH_TIMEOUT_MS, REVIEW_TIMEOUT_MS, requestCoach, requestReview } from '../client'
+import { createGame, playerView } from '../../engine/game'
 
 const log = [{ type: 'draw' as const, seat: 0 as const }]
 
@@ -63,5 +64,34 @@ describe('requestReview', () => {
     )
     const r = await requestReview(log, null, {})
     expect(r).toEqual({ ok: true, text: '1. Keep your safe tiles.', model: 'test-model' })
+  })
+})
+
+describe('answer ceilings', () => {
+  it('gives the in-game coach 20 seconds, then cuts it off', () => {
+    // The coach runs while you are sitting there waiting to play, so its whole
+    // patience budget is 20s — past that, an error with a retry beats a
+    // spinner. Pinned because the number is a product decision, not a detail.
+    expect(COACH_TIMEOUT_MS).toBe(20_000)
+  })
+
+  it('gives the post-round review longer — nobody is waiting on a turn', () => {
+    // Cutting the review to the coach's ceiling is what killed it originally.
+    expect(REVIEW_TIMEOUT_MS).toBeGreaterThan(COACH_TIMEOUT_MS * 2)
+  })
+
+  it('cuts the coach off at its own ceiling, with a retryable error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      (_u: unknown, init: { signal?: AbortSignal }) =>
+        new Promise((_res, rej) => {
+          init.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')))
+        }),
+    )
+    const view = playerView(createGame({ faanMinimum: 0, flowers: true, faanCap: null }, 'ceiling'), 0)
+    const started = Date.now()
+    const r = await requestCoach(view, { timeoutMs: 40 })
+    expect(Date.now() - started).toBeLessThan(2_000)
+    expect(r).toMatchObject({ ok: false, timedOut: true })
   })
 })

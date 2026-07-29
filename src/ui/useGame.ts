@@ -43,7 +43,12 @@ export const defaultSettings: Settings = {
   faanCap: null,
   difficulties: { 0: 'intermediate', 1: 'easy', 2: 'intermediate', 3: 'advanced' },
   numberedTiles: true,
-  beginnerAids: true,
+  // Off by default: the suggested-discard rings tell you the answer before you
+  // have thought about it, which is the wrong first impression of the game.
+  // Turn them on from Settings when you want the training wheels. (The coach
+  // panel's ranked table is opt-in by opening the panel, so it is not gated on
+  // this — only the unsolicited overlays on your own tiles are.)
+  beginnerAids: false,
   reducedMotion: false,
   byoKey: '',
 }
@@ -56,27 +61,31 @@ export interface FinishedInfo {
   log: Action[]
 }
 
+const FRESH_MATCH: MatchInfo = {
+  dealer: 0,
+  roundWind: 'E',
+  roundNo: 1,
+  scores: { 0: 0, 1: 0, 2: 0, 3: 0 },
+}
+
+const soloRoomFor = (s: Settings): SoloRoom =>
+  createSoloRoom({
+    rules: { faanMinimum: s.faanMinimum, flowers: s.flowers, faanCap: s.faanCap },
+    difficulties: s.difficulties,
+  })
+
 export function useGame(settings: Settings) {
-  const roomRef = useRef<SoloRoom | null>(null)
-  if (!roomRef.current) {
-    roomRef.current = createSoloRoom({
-      rules: {
-        faanMinimum: settings.faanMinimum,
-        flowers: settings.flowers,
-        faanCap: settings.faanCap,
-      },
-      difficulties: settings.difficulties,
-    })
-  }
-  const room = roomRef.current
+  // The room is state, not a ref, so `restart` can replace it. A round in
+  // progress can't have its rules swapped underneath it — the runner rightly
+  // refuses a new round mid-hand, and that rule is multiplayer's authority
+  // model, not something to weaken for solo convenience. So solo gets a fresh
+  // ROOM instead: same engine, same runner, dealt from scratch with the rules
+  // you just chose. Nothing about the protocol changes.
+  const initial = useRef<Settings>(settings)
+  const [room, setRoom] = useState<SoloRoom>(() => soloRoomFor(initial.current))
 
   const [view, setView] = useState<PlayerView | null>(null)
-  const [match, setMatch] = useState<MatchInfo>({
-    dealer: 0,
-    roundWind: 'E',
-    roundNo: 1,
-    scores: { 0: 0, 1: 0, 2: 0, 3: 0 },
-  })
+  const [match, setMatch] = useState<MatchInfo>(FRESH_MATCH)
   const [finished, setFinished] = useState<FinishedInfo | null>(null)
 
   useEffect(() => {
@@ -117,5 +126,20 @@ export function useGame(settings: Settings) {
     })
   }
 
-  return { view, match, finished, dispatch, newRound }
+  /**
+   * Abandon this hand and deal a brand-new solo game under the CURRENT
+   * settings. The escape hatch for "I changed the rules and nothing happened":
+   * mid-hand, rule changes can only ever land on the next round, so when that
+   * is not what you meant, this gives you the round now. Scores reset with it —
+   * it is a new game, and it says so on the button.
+   */
+  const restart = () => {
+    room.runner.stop()
+    setView(null)
+    setFinished(null)
+    setMatch(FRESH_MATCH)
+    setRoom(soloRoomFor(settingsRef.current))
+  }
+
+  return { view, match, finished, dispatch, newRound, restart }
 }

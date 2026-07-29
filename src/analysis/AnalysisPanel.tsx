@@ -5,8 +5,14 @@ import { tileName } from '../engine/tiles'
 import type { TileId } from '../engine/types'
 import { TileView } from '../ui/TileView'
 import type { FinishedInfo } from '../ui/useGame'
-import { requestCoach, requestReview, type AnalysisResult } from './client'
+import { COACH_TIMEOUT_MS, requestCoach, requestReview, type AnalysisResult } from './client'
 
+/**
+ * Gap between MANUAL coach requests — a guard on the shared key's budget, not
+ * a limit on how long the model may take to answer. Those two were easy to
+ * confuse when the only thing on screen was "wait 8s", so the label now says
+ * which it is, and a request in flight shows its own elapsed seconds.
+ */
 const COOLDOWN_MS = 8_000
 const SEAT_LABELS = ['You', 'South', 'West', 'North'] as const
 
@@ -80,6 +86,7 @@ export function AnalysisPanel({
   const [streamText, setStreamText] = useState('')
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [cooldown, setCooldown] = useState(0)
+  const [elapsed, setElapsed] = useState(0)
   const lastManualCall = useRef(0)
   const inFlight = useRef<{ key: string; ctl: AbortController } | null>(null)
   const cache = useRef(new Map<string, string>())
@@ -125,6 +132,19 @@ export function AnalysisPanel({
     )
     return () => clearInterval(t)
   }, [cooldown])
+
+  // Elapsed seconds on the request in flight. A model that takes 12 seconds and
+  // a model that has died look identical behind a bare "Thinking…", so show the
+  // clock and the ceiling it is counting towards.
+  useEffect(() => {
+    if (!busy) {
+      setElapsed(0)
+      return
+    }
+    const startedAt = Date.now()
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 250)
+    return () => clearInterval(t)
+  }, [busy])
 
   /** A failed call bought nothing — don't also make the user wait out a cooldown. */
   const clearCooldown = () => {
@@ -381,7 +401,9 @@ export function AnalysisPanel({
           >
             Review that round
           </button>
-          {cooldown > 0 && <span className="self-center text-xs text-emerald-300/70">wait {cooldown}s</span>}
+          {cooldown > 0 && !busy && (
+            <span className="self-center text-xs text-emerald-300/70">ready to ask again in {cooldown}s</span>
+          )}
         </div>
       ) : (
         <p className="mt-3 rounded-lg border border-emerald-800 bg-emerald-900/40 p-2 text-xs text-emerald-300/70">
@@ -402,7 +424,14 @@ export function AnalysisPanel({
           }`}
           aria-live="polite"
         >
-          {busy && !shownText && <span className="animate-pulse text-emerald-200">Thinking…</span>}
+          {busy && !shownText && (
+            <span className="flex items-baseline gap-2">
+              <span className="animate-pulse text-emerald-200">Thinking…</span>
+              <span className="tabular text-xs text-emerald-300/60">
+                {elapsed}s{lastRun.current === 'coach' ? ` / ${COACH_TIMEOUT_MS / 1000}s` : ''}
+              </span>
+            </span>
+          )}
           {failed && (
             <>
               <p>{errorText}</p>

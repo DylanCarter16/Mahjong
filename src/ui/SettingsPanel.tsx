@@ -17,7 +17,7 @@ const row = 'flex items-center justify-between gap-3 py-1.5'
 const select = 'min-h-11 rounded bg-emerald-800 px-2 py-1 text-sm text-emerald-50 border border-emerald-600'
 const check = 'h-6 w-6'
 
-export type SettingsScope = 'solo' | 'multiplayer'
+export type SettingsScope = 'pre-game' | 'solo' | 'multiplayer'
 
 export function SettingsPanel({
   settings,
@@ -25,16 +25,27 @@ export function SettingsPanel({
   onClose,
   scope = 'solo',
   aidsAllowedByHost = true,
+  onApplyNow,
 }: {
   settings: Settings
   onChange: (s: Settings) => void
   onClose: () => void
-  /** 'multiplayer' hides the rule/bot sections — the host owns those. */
+  /**
+   * 'pre-game'    — from the menu, before any game exists: rules here apply to
+   *                 the very first hand you are dealt.
+   * 'solo'        — mid-game: rules land on the next round (a hand can't have
+   *                 its rules swapped underneath it), with onApplyNow as the
+   *                 escape hatch.
+   * 'multiplayer' — display preferences only; the host owns the rules.
+   */
   scope?: SettingsScope
   /** House rule (§B2). False disables the personal aids toggle and says why. */
   aidsAllowedByHost?: boolean
+  /** Solo mid-game: deal a fresh game now under the settings just chosen. */
+  onApplyNow?: () => void
 }) {
   const aidsOff = !aidsAllowedByHost
+  const showRules = scope !== 'multiplayer'
   return (
     <div className="fixed inset-0 z-30 flex justify-end bg-black/40" onClick={onClose}>
       <div
@@ -54,9 +65,11 @@ export function SettingsPanel({
           </button>
         </div>
 
-        {scope === 'solo' && (
+        {showRules && (
           <>
-            <h3 className="mt-4 text-xs uppercase tracking-wide text-emerald-300/70">Rules (next round)</h3>
+            <h3 className="mt-4 text-xs uppercase tracking-wide text-emerald-300/70">
+              {scope === 'pre-game' ? 'Rules (applied when you start)' : 'Rules (next round)'}
+            </h3>
             <div className={row}>
               <label htmlFor="faan-min">Minimum faan</label>
               <select
@@ -81,7 +94,9 @@ export function SettingsPanel({
               />
             </div>
 
-            <h3 className="mt-4 text-xs uppercase tracking-wide text-emerald-300/70">Bots (next round)</h3>
+            <h3 className="mt-4 text-xs uppercase tracking-wide text-emerald-300/70">
+              {scope === 'pre-game' ? 'Bots' : 'Bots (next round)'}
+            </h3>
             {([1, 2, 3] as Seat[]).map((seat) => (
               <div className={row} key={seat}>
                 <label htmlFor={`diff-${seat}`}>{SEAT_NAMES[seat]}</label>
@@ -122,6 +137,7 @@ export function SettingsPanel({
         <div className={row}>
           <label htmlFor="aids" className={aidsOff ? 'text-emerald-300/50' : ''}>
             Beginner aids
+            <span className="block text-xs text-emerald-300/60">Hint rings on your own tiles</span>
           </label>
           <input
             id="aids"
@@ -165,10 +181,28 @@ export function SettingsPanel({
           </p>
         </div>
 
+        {scope === 'solo' && onApplyNow && (
+          <div className="mt-4 rounded-lg border border-emerald-800 bg-emerald-900/40 p-3">
+            <p className="text-xs text-emerald-300/70">
+              Rule and bot changes land on the next round — a hand can't have its rules swapped
+              halfway through. If you want them now:
+            </p>
+            <button
+              className="mt-2 min-h-11 w-full rounded-lg bg-amber-400 px-3 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-300 cursor-pointer"
+              onClick={onApplyNow}
+            >
+              Deal a new game with these rules
+            </button>
+            <p className="mt-1 text-xs text-emerald-300/50">Abandons the current hand and resets the score.</p>
+          </div>
+        )}
+
         <p className="mt-3 text-xs text-emerald-300/60">
-          {scope === 'solo'
-            ? 'Rule and bot changes take effect when the next round is dealt.'
-            : 'House rules (faan minimum, flowers, timers, coach) are set by the host in the lobby and locked for the game.'}
+          {scope === 'pre-game'
+            ? 'These apply to the next game you start. Display preferences apply everywhere, immediately.'
+            : scope === 'solo'
+              ? 'Rule and bot changes take effect when the next round is dealt.'
+              : 'House rules (faan minimum, flowers, timers, coach) are set by the host in the lobby and locked for the game.'}
         </p>
       </div>
     </div>

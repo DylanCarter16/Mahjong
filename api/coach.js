@@ -892,7 +892,7 @@ function createHandler(cfg) {
 
 // api/_src/coach.ts
 var maxDuration = 60;
-var UPSTREAM_TIMEOUT_MS = 3e4;
+var UPSTREAM_TIMEOUT_MS = 18e3;
 var coach_default = createHandler({
   buildPrompt: buildCoachPrompt,
   model: "claude-haiku-4-5-20251001",

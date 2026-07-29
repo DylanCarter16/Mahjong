@@ -12,7 +12,7 @@ export function GameScreen({ settings, onChangeSettings }: {
   settings: Settings
   onChangeSettings: (s: Settings) => void
 }) {
-  const { view, match, finished, dispatch, newRound } = useGame(settings)
+  const { view, match, finished, dispatch, newRound, restart } = useGame(settings)
   const [showSettings, setShowSettings] = useState(false)
   const [resultDismissed, setResultDismissed] = useState(false)
 
@@ -59,9 +59,10 @@ export function GameScreen({ settings, onChangeSettings }: {
             view={view}
             finished={finished}
             byoKey={settings.byoKey || undefined}
-            /* Solo has no host, so the coach is always allowed; the local
-               tables follow the same personal toggle as the tile rings. */
-            aidsEnabled={settings.beginnerAids}
+            /* Solo has no host, so both halves are always allowed. The panel's
+               tables are opt-in by opening it; `settings.beginnerAids` gates
+               only the unsolicited ring overlays on your own tiles above. */
+            aidsEnabled
             /* Solo claim windows never expire (SOLO_TIMING.claimWindowMs = null),
                so there is time to think about a claim — hence solo-only. */
             claimAdvice
@@ -88,7 +89,15 @@ export function GameScreen({ settings, onChangeSettings }: {
         )}
       </TableLayout>
       {showSettings && (
-        <SettingsPanel settings={settings} onChange={onChangeSettings} onClose={() => setShowSettings(false)} />
+        <SettingsPanel
+          settings={settings}
+          onChange={onChangeSettings}
+          onClose={() => setShowSettings(false)}
+          onApplyNow={() => {
+            restart()
+            setShowSettings(false)
+          }}
+        />
       )}
     </>
   )
