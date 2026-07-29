@@ -28,6 +28,7 @@ export function MultiplayerTable({
   onAction,
   onNewRound,
   onLeave,
+  onOpenSettings,
 }: {
   view: PlayerView
   match: MatchInfo
@@ -42,6 +43,8 @@ export function MultiplayerTable({
   onAction: (a: Action) => void
   onNewRound: () => void
   onLeave: () => void
+  /** Display preferences, reachable mid-game in multiplayer too (§B1). */
+  onOpenSettings: () => void
 }) {
   const me = view.seat
   const label = (seat: Seat) =>
@@ -76,7 +79,7 @@ export function MultiplayerTable({
       evals={evals}
       onDiscard={myDiscardTurn ? onDiscard : undefined}
       header={
-        <header className="flex items-center justify-between gap-2 px-4 py-2">
+        <header className="flex items-center justify-between gap-1 px-2 py-2 sm:px-4">
           <button
             className="min-h-11 shrink-0 rounded-lg px-3 py-1.5 text-sm text-emerald-200 hover:bg-emerald-800 cursor-pointer"
             onClick={onLeave}
@@ -86,6 +89,14 @@ export function MultiplayerTable({
           <div className="text-right text-xs text-emerald-200/80 sm:text-sm">
             Round {match.roundNo} · {view.roundWind} · min {view.faanMinimum} · room {room.code}
           </div>
+          <button
+            className="min-h-11 min-w-11 shrink-0 rounded-lg text-base text-emerald-200 hover:bg-emerald-800 cursor-pointer"
+            onClick={onOpenSettings}
+            aria-label="Settings"
+            title="Display settings"
+          >
+            ⚙
+          </button>
         </header>
       }
       actionBar={

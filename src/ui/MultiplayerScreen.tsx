@@ -3,10 +3,12 @@
 // fatal-error states. Solo is untouched and still fully offline; this screen is
 // only mounted when the player chose Create or Join.
 
+import { useState } from 'react'
 import { AnalysisPanel } from '../analysis/AnalysisPanel'
 import { useRoom, type JoinOptions } from '../net/useRoom'
 import { LobbyScreen } from './LobbyScreen'
 import { MultiplayerTable } from './MultiplayerTable'
+import { SettingsPanel } from './SettingsPanel'
 import type { Settings } from './useGame'
 
 export function MultiplayerScreen({
@@ -22,6 +24,7 @@ export function MultiplayerScreen({
 }) {
   const room = useRoom(join)
   const { state } = room
+  const [showSettings, setShowSettings] = useState(false)
   const leave = () => {
     room.leave()
     onLeave()
@@ -69,8 +72,12 @@ export function MultiplayerScreen({
   }
 
   const you = state.you
-  // The panel always renders: when the host has coaching off, it drops the AI
-  // prose but still shows the local ranked-discard table (§9).
+  // Two independent gates (§B3). The house rule decides whether MODEL calls are
+  // allowed at all; the aids — engine-computed, free, no request — follow the
+  // player's own toggle within whatever the host allows. When both are off the
+  // panel renders nothing rather than a launcher that opens an empty box.
+  const aidsAllowedByHost = state.room.rules.beginnerAidsAllowed
+  const aidsOn = settings.beginnerAids && aidsAllowedByHost
   const coachSlot = (
     <AnalysisPanel
       view={state.view}
@@ -78,25 +85,38 @@ export function MultiplayerScreen({
       byoKey={settings.byoKey || undefined}
       roomCode={state.room.code}
       coachEnabled={state.room.rules.coachAllowed}
+      aidsEnabled={aidsOn}
     />
   )
 
   return (
-    <MultiplayerTable
-      view={state.view}
-      match={state.match}
-      finished={state.finished}
-      room={state.room}
-      status={state.status}
-      statusDetail={state.statusDetail}
-      numbered={settings.numberedTiles}
-      beginnerAids={settings.beginnerAids}
-      coachSlot={coachSlot}
-      onDiscard={(tile) => room.dispatch({ type: 'discard', seat: you, tile })}
-      onAction={room.dispatch}
-      onNewRound={room.newRound}
-      onLeave={leave}
-    />
+    <>
+      <MultiplayerTable
+        view={state.view}
+        match={state.match}
+        finished={state.finished}
+        room={state.room}
+        status={state.status}
+        statusDetail={state.statusDetail}
+        numbered={settings.numberedTiles}
+        beginnerAids={aidsOn}
+        coachSlot={coachSlot}
+        onDiscard={(tile) => room.dispatch({ type: 'discard', seat: you, tile })}
+        onAction={room.dispatch}
+        onNewRound={room.newRound}
+        onLeave={leave}
+        onOpenSettings={() => setShowSettings(true)}
+      />
+      {showSettings && (
+        <SettingsPanel
+          settings={settings}
+          onChange={onChangeSettings}
+          onClose={() => setShowSettings(false)}
+          scope="multiplayer"
+          aidsAllowedByHost={aidsAllowedByHost}
+        />
+      )}
+    </>
   )
 }
 

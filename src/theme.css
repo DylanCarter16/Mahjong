@@ -156,3 +156,13 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* The same, asked for in Settings rather than by the OS (§B1 display prefs).
+   Purely local: it changes what this device renders and nothing else. */
+[data-reduce-motion='on'] *,
+[data-reduce-motion='on'] *::before,
+[data-reduce-motion='on'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}

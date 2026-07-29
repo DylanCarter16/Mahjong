@@ -194,6 +194,22 @@ export function LobbyScreen({
                 onChange={(e) => setRule('coachAllowed', e.target.checked)}
               />
             </Row>
+            {/* Separate from the coach on purpose: the aids are engine-computed
+                and send no request, so "no training wheels" and "no AI" are
+                different tables. Either can be on without the other. */}
+            <Row label="Beginner aids allowed" htmlFor="aids-allowed">
+              <input
+                id="aids-allowed"
+                type="checkbox"
+                className="h-6 w-6"
+                checked={room.rules.beginnerAidsAllowed}
+                onChange={(e) => setRule('beginnerAidsAllowed', e.target.checked)}
+              />
+            </Row>
+            <p className="text-xs text-emerald-300/60">
+              Aids = suggested-discard rings and the local ranked tables. Off means a
+              no-training-wheels game for everyone; players can still turn them off for themselves.
+            </p>
           </div>
         ) : (
           <p className="rounded-xl border border-emerald-800 bg-emerald-900/40 p-3 text-sm text-emerald-200/80">
@@ -236,5 +252,6 @@ function summariseRules(r: HouseRules): string {
     `${r.claimWindowSec}s claims`,
     `${r.turnTimerSec}s turns`,
     r.coachAllowed ? 'coach on' : 'coach off',
+    r.beginnerAidsAllowed ? 'aids on' : 'no aids',
   ].join(' · ')
 }

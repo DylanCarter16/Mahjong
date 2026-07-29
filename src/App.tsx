@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { LessonScreen } from './lessons/LessonScreen'
 import { GalleryScreen } from './ui/GalleryScreen'
 import { PlayHub } from './ui/PlayHub'
+import { REDUCE_MOTION_ATTR } from './ui/motion'
 import { TileDefs } from './ui/tiles/TileFace'
 import { defaultSettings, type Settings } from './ui/useGame'
 
@@ -22,6 +23,12 @@ export default function App() {
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
+
+  // Personal display preference, published on the root element so both CSS
+  // (theme.css) and the components that branch in JS read one source.
+  useEffect(() => {
+    document.documentElement.setAttribute(REDUCE_MOTION_ATTR, settings.reducedMotion ? 'on' : 'off')
+  }, [settings.reducedMotion])
 
   // Static design-gate page: /#/gallery
   if (hash === '#/gallery') return <GalleryScreen />

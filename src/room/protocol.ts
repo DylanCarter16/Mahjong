@@ -23,7 +23,16 @@ export interface MatchInfo {
   scores: Record<Seat, number>
 }
 
-/** House rules the host sets in the lobby (spec §4). */
+/**
+ * House rules the host sets in the lobby (spec §4).
+ *
+ * The line these sit on: a HOUSE RULE is set by the host, applies to the whole
+ * room, and is locked once the game starts. A personal DISPLAY preference
+ * (numbered tiles, reduced motion, whether *you* want the aid overlays) lives
+ * in the client's Settings, never crosses the wire, and is changeable at any
+ * time. `coachAllowed` and `beginnerAidsAllowed` are the two rules that gate a
+ * personal preference; neither one is a game-state change.
+ */
 export interface HouseRules extends RuleConfig {
   /** Claim window length in seconds, 3–8. */
   claimWindowSec: number
@@ -31,6 +40,14 @@ export interface HouseRules extends RuleConfig {
   turnTimerSec: number
   /** AI coach visible-to-everyone toggle (§9). Advisory, not a secret. */
   coachAllowed: boolean
+  /**
+   * May players use the beginner aids (suggested-discard rings, the local
+   * ranked tables)? Some tables want a no-training-wheels game. Host rule wins
+   * over the personal toggle. Independent of `coachAllowed`: the aids are
+   * engine-computed and send no request, so a room can allow one without the
+   * other in either direction.
+   */
+  beginnerAidsAllowed: boolean
 }
 
 /** Default 0 faan minimum — that's how the family plays (spec §4). */
@@ -41,6 +58,7 @@ export const DEFAULT_HOUSE_RULES: HouseRules = {
   claimWindowSec: 4,
   turnTimerSec: 30,
   coachAllowed: true,
+  beginnerAidsAllowed: true,
 }
 
 /** Clamp untrusted lobby input into the ranges the spec allows. */
@@ -62,6 +80,8 @@ export function sanitizeHouseRules(r: unknown): HouseRules {
     claimWindowSec: Math.max(3, Math.min(8, num(raw.claimWindowSec, d.claimWindowSec))),
     turnTimerSec: Math.max(10, Math.min(120, num(raw.turnTimerSec, d.turnTimerSec))),
     coachAllowed: typeof raw.coachAllowed === 'boolean' ? raw.coachAllowed : d.coachAllowed,
+    beginnerAidsAllowed:
+      typeof raw.beginnerAidsAllowed === 'boolean' ? raw.beginnerAidsAllowed : d.beginnerAidsAllowed,
   }
 }
 

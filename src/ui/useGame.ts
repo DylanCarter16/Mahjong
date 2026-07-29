@@ -12,10 +12,27 @@ import { createSoloRoom, type SoloRoom } from '../room/solo'
 
 export const HUMAN: Seat = 0
 
+/**
+ * Client-side settings. Two kinds live here, and the difference matters once
+ * multiplayer is involved (§B1):
+ *
+ *   - RULES (faanMinimum, flowers, difficulties) change how the game is
+ *     played. Solo owns them; in multiplayer they are the host's house rules
+ *     and this object's copies are not used.
+ *   - DISPLAY PREFERENCES (numberedTiles, beginnerAids, reducedMotion) and the
+ *     BYO key are personal, local, and affect only this device's view. They
+ *     are changeable at any time, in either mode, mid-game — they never touch
+ *     game state and never cross the wire.
+ */
 export interface Settings extends RuleConfig {
   difficulties: Record<Seat, Difficulty>
   numberedTiles: boolean
   beginnerAids: boolean
+  /**
+   * Force reduced motion on top of the OS setting (never the other way round:
+   * a user who asked the OS for reduced motion always gets it).
+   */
+  reducedMotion: boolean
   /** Optional bring-your-own Anthropic key. Memory only — never persisted. */
   byoKey: string
 }
@@ -27,6 +44,7 @@ export const defaultSettings: Settings = {
   difficulties: { 0: 'intermediate', 1: 'easy', 2: 'intermediate', 3: 'advanced' },
   numberedTiles: true,
   beginnerAids: true,
+  reducedMotion: false,
   byoKey: '',
 }
 

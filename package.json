@@ -21,6 +21,7 @@
     "smoke:reconnect": "node scripts/smoke-reconnect.mjs",
     "verify:ui": "node scripts/verify-ui.mjs",
     "verify:coach": "node scripts/verify-coach.mjs",
+    "verify:settings": "node scripts/verify-settings.mjs",
     "verify:responsive": "node scripts/verify-responsive.mjs",
     "verify:lessons": "node scripts/verify-lessons.mjs"
   },

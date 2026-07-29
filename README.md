@@ -203,12 +203,20 @@ app runs where browser storage is unavailable).
 
 ## AI coach (`src/analysis`, `api/`)
 
-Two actions, both rate-limited and error-safe: **Analyse my hand** (realistic
-faan target, best discard, one defensive note) and **Review that round** (three
+Three actions, all rate-limited and error-safe: **Analyse my hand** (realistic
+faan target, best discard, one defensive note), **Should I claim it?** (whether
+to pung/chow/kong a discard — single-player only, since a multiplayer claim
+window is too short for a round trip), and **Review that round** (three
 improvements tied to specific turns from the action log). Coach requests
 originate client-side and hit the proxy directly; the game server never touches
 the key. The prompt is built server-side from a validated `PlayerView` — no
-client-supplied prompt/model/messages.
+client-supplied prompt/model/messages; even the claim-vs-discard *mode* is
+derived from the validated state's own phase.
+
+Every request has a ceiling at both ends — an upstream budget inside the
+function's `maxDuration`, and a client timeout above it — so a stalled model
+always becomes "couldn't generate a review" with a retry, never a spinner that
+runs forever.
 
 In multiplayer the coach is exposed to strangers spending the host's key, so:
 it's a **host setting** (default on, shown in the lobby rule summary and visible
@@ -216,9 +224,20 @@ to the room); the proxy rate-limits per real IP (`x-real-ip`), per room, and
 under a **global daily ceiling** independent of IP; a malformed BYO key is
 rejected before any upstream call; and the **bring-your-own-key** hatch is
 surfaced in the lobby (memory only, never saved, never sent to the game server)
-to skip the shared limit. When the coach is off, the **local ranked-discard
-table** — computed by the engine, free and instant — still shows. Uses
-`claude-fable-5`, falls back to `claude-opus-4-8`.
+to skip the shared limit. When the coach is off its launcher is **gone**, but
+the **local ranked-discard table** — computed by the engine, free, instant, and
+gated by a separate "beginner aids allowed" house rule — still has its own
+entry point. Uses `claude-fable-5`, falls back to `claude-opus-4-8`.
+
+### House rules vs display preferences
+
+A **house rule** is the host's, applies to the room, and is locked once the game
+starts (faan minimum, flowers, timers, `coachAllowed`, `beginnerAidsAllowed`). A
+**display preference** is yours, lives only in this browser, never crosses the
+wire, and is changeable any time in either mode — numbered tiles, whether *you*
+want the beginner aids, reduced motion, your own API key. The ⚙ on the
+multiplayer table opens exactly those. Where the two meet, the host wins: with
+`beginnerAidsAllowed` off, your personal aids toggle is disabled and says why.
 
 > **Deploy note:** the in-memory limiters are per warm serverless instance, so
 > the daily ceiling is a true global cap only once the counters are moved to
