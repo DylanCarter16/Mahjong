@@ -127,6 +127,64 @@ if (/Analyse my hand|Review that round/.test(opened)) fail('B3: model buttons of
 else ok('B3: opened panel offers no model calls')
 await page.screenshot({ path: `${OUT}/mp-table-only.png` })
 
+// ------------------------------------------------- A1: multiplayer review --
+// The multiplayer half of the dead review button: the win dialog covers the
+// coach panel, and its "review" action used to be a no-op, so the round review
+// was unreachable in a room. Play a real round out and check it dismisses.
+await createRoom({ coach: true, aids: true })
+await page.route('**/api/review', (route) =>
+  route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ text: 'MP-REVIEW-OK', model: 'stub-model' }),
+  }),
+)
+const TILE = /of Characters|of Circles|of Bamboo|Wind|Dragon/
+let done = false
+for (let step = 0; step < 900 && !done; step++) {
+  const text = await body()
+  if (/Review this round|Wall exhausted|Waiting for host/.test(text)) { done = true; break }
+  if (/claim it\?/.test(text)) {
+    const pass = page.getByRole('button', { name: 'Pass' })
+    if (await pass.count()) await pass.first().click()
+    await page.waitForTimeout(150)
+    continue
+  }
+  if (/Your turn — pick a tile to discard/.test(text)) {
+    const hand = []
+    for (const el of await page.$$('button[aria-label]')) {
+      const label = await el.getAttribute('aria-label')
+      if (label && TILE.test(label)) hand.push(el)
+    }
+    if (hand.length) {
+      await hand[hand.length - 1].click()
+      await page.waitForTimeout(120)
+      continue
+    }
+  }
+  await page.waitForTimeout(200)
+}
+if (!done) fail('A1/mp: the round never finished — review not checked')
+else {
+  await page.screenshot({ path: `${OUT}/mp-round-end.png` })
+  const dismiss = page.getByRole('button', { name: /Review this round/ })
+  if (await dismiss.count()) {
+    await dismiss.click()
+    await page.waitForTimeout(400)
+    const after = await body()
+    if (/Review this round/.test(after)) fail('A1/mp: the win dialog did not dismiss')
+    else ok('A1/mp: the end-of-round dialog dismisses to the table')
+    const reviewBtn = page.getByRole('button', { name: 'Review that round' })
+    if (await reviewBtn.count()) {
+      await reviewBtn.click()
+      await page.waitForTimeout(900)
+      if (/MP-REVIEW-OK/.test(await body())) ok('A1/mp: "Review that round" produces output in a room')
+      else fail('A1/mp: the review produced nothing')
+      await page.screenshot({ path: `${OUT}/mp-review.png` })
+    } else fail('A1/mp: no review button under the dismissed dialog')
+  } else fail('A1/mp: no dismiss action on the multiplayer win dialog')
+}
+
 if (errors.length) fail(`console errors: ${errors.slice(0, 3).join(' | ')}`)
 else ok('no console errors during the flow')
 

@@ -181,6 +181,27 @@ export function AnalysisPanel({
 
   useEffect(() => () => inFlight.current?.ctl.abort(), [])
 
+  // Open at round end so "review this round" on the win dialog actually lands
+  // somewhere. Without this the dialog dismissed to a table where the review
+  // button was still folded away behind the launcher — technically reachable,
+  // in practice a dead end. ✕ still closes it, and an auto-opened panel folds
+  // itself back up when the next round starts: leaving it open would silently
+  // resume per-turn coach prefetching that the player never asked for.
+  const openRef = useRef(open)
+  openRef.current = open
+  const autoOpened = useRef(false)
+  useEffect(() => {
+    if (roundOver && coachEnabled) {
+      if (!openRef.current) {
+        autoOpened.current = true
+        setOpen(true)
+      }
+    } else if (autoOpened.current) {
+      autoOpened.current = false
+      setOpen(false)
+    }
+  }, [roundOver, coachEnabled])
+
   const runReview = async () => {
     if (!finished || busy || Date.now() - lastManualCall.current < COOLDOWN_MS) return
     lastManualCall.current = Date.now()
@@ -222,7 +243,11 @@ export function AnalysisPanel({
         className="min-h-11 rounded-lg bg-emerald-800/80 px-3 py-1.5 text-sm text-emerald-100 hover:bg-emerald-700 cursor-pointer"
         onClick={() => setOpen(true)}
       >
-        {claimable ? `${title} — claim this tile?` : title}
+        {roundOver && coachEnabled
+          ? '✨ Review that round'
+          : claimable
+            ? `${title} — claim this tile?`
+            : title}
       </button>
     )
   }
