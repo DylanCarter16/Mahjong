@@ -384,7 +384,9 @@ function validatePlayerView(x) {
 }
 
 // api/_lib/buildPrompts.ts
-var COACH_SYSTEM = "You are a concise, friendly Hong Kong mahjong coach for a beginner. You are given exact engine-computed facts about the position. Never recompute or contradict the numbers \u2014 narrate them. Follow the requested output format exactly.";
+var PLAIN_PROSE = ' Write plain prose only \u2014 no Markdown or formatting syntax of any kind (no asterisks, underscores, backticks, headings, or bullet lists). Always name tiles in plain English ("West Wind", "White Dragon", "9 of Characters") and never use internal codes like wW, dW, or m9.';
+var COACH_SYSTEM = "You are a concise, friendly Hong Kong mahjong coach for a beginner. You are given exact engine-computed facts about the position. Never recompute or contradict the numbers \u2014 narrate them. Follow the requested output format exactly." + PLAIN_PROSE;
+var REVIEW_SYSTEM = "You are a Hong Kong mahjong teacher reviewing a finished round for a beginner. Be concrete and reference specific turns. Follow the requested output format exactly." + PLAIN_PROSE;
 var SEAT_LABELS = ["ME", "South", "West", "North"];
 function dangerWord(score) {
   if (score === 0) return "SAFE (in their discards)";

@@ -11,11 +11,20 @@ import { postRoundPrompt } from '../../src/analysis/prompts'
 import { serialiseLog } from '../../src/analysis/serialise'
 import { validatePlayerView, validateReview } from './validate'
 
+// The facts block below feeds the model internal tile codes (m9, wW, dW); these
+// system prompts require it to translate them to plain English names in its
+// reply and to write with no Markdown, so nothing like "**Discard wW**" ever
+// reaches the screen. The client also strips both as a safety net.
+const PLAIN_PROSE =
+  ' Write plain prose only — no Markdown or formatting syntax of any kind (no asterisks, underscores, backticks, headings, or bullet lists). Always name tiles in plain English ("West Wind", "White Dragon", "9 of Characters") and never use internal codes like wW, dW, or m9.'
+
 export const COACH_SYSTEM =
-  'You are a concise, friendly Hong Kong mahjong coach for a beginner. You are given exact engine-computed facts about the position. Never recompute or contradict the numbers — narrate them. Follow the requested output format exactly.'
+  'You are a concise, friendly Hong Kong mahjong coach for a beginner. You are given exact engine-computed facts about the position. Never recompute or contradict the numbers — narrate them. Follow the requested output format exactly.' +
+  PLAIN_PROSE
 
 export const REVIEW_SYSTEM =
-  'You are a Hong Kong mahjong teacher reviewing a finished round for a beginner. Be concrete and reference specific turns. Follow the requested output format exactly.'
+  'You are a Hong Kong mahjong teacher reviewing a finished round for a beginner. Be concrete and reference specific turns. Follow the requested output format exactly.' +
+  PLAIN_PROSE
 
 const SEAT_LABELS = ['ME', 'South', 'West', 'North'] as const
 
