@@ -30,18 +30,15 @@ export const requestCoach = (view: PlayerView, opts: RequestOptions = {}) =>
 export const requestReview = (log: Action[], result: RoundResult | null, opts: RequestOptions = {}) =>
   post('/api/review', { log, result }, opts)
 
-interface SseChunk {
-  text?: string
-  error?: string
-  done?: boolean
-  model?: string
-}
-
 async function post(path: string, body: unknown, opts: RequestOptions): Promise<AnalysisResult> {
   const { byoKey, roomCode, signal, onDelta } = opts
   try {
-    const stream = Boolean(onDelta)
-    const res = await fetch(`${path}${stream ? '?stream=1' : ''}`, {
+    // One JSON response, no client-side streaming. Server-side SSE streaming
+    // crashes Vercel's function runtime (FUNCTION_INVOCATION_FAILED, before any
+    // model call), so we use the plain response path — which is reliable. The
+    // coach still streams from Anthropic ON THE SERVER; the client just receives
+    // the whole answer at once, behind the existing loading state.
+    const res = await fetch(path, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -58,43 +55,14 @@ async function post(path: string, body: unknown, opts: RequestOptions): Promise<
         error: 'The coach is rate-limited right now — try again in a moment.',
       }
     }
-    if (!stream || !res.ok || !res.body) {
-      const data = (await res.json().catch(() => ({}))) as { text?: string; model?: string; error?: string }
-      if (!res.ok) return { ok: false, error: data.error ?? `Coach error (HTTP ${res.status}).` }
-      return { ok: true, text: stripFences(data.text ?? ''), ...(data.model ? { model: data.model } : {}) }
-    }
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let full = ''
-    let model: string | undefined
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-      for (const line of lines) {
-        if (!line.startsWith('data:')) continue
-        const raw = line.slice(5).trim()
-        if (!raw) continue
-        let chunk: SseChunk
-        try {
-          chunk = JSON.parse(raw) as SseChunk
-        } catch {
-          continue
-        }
-        if (chunk.text) {
-          full += chunk.text
-          onDelta?.(full)
-        }
-        if (chunk.error) return { ok: false, error: chunk.error }
-        if (chunk.done) model = chunk.model
-      }
-    }
-    if (!full) return { ok: false, error: 'Empty response from the coach.' }
-    return { ok: true, text: stripFences(full), ...(model ? { model } : {}) }
+    const data = (await res.json().catch(() => ({}))) as { text?: string; model?: string; error?: string }
+    if (!res.ok) return { ok: false, error: data.error ?? `Coach error (HTTP ${res.status}).` }
+    const text = stripFences(data.text ?? '')
+    if (!text) return { ok: false, error: 'Empty response from the coach.' }
+    // Callers may render incrementally via onDelta; hand them the full text once
+    // so the coach panel updates exactly as before.
+    onDelta?.(text)
+    return { ok: true, text, ...(data.model ? { model: data.model } : {}) }
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') return { ok: false, error: 'cancelled' }
     return { ok: false, error: 'Network error reaching the coach.' }

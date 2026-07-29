@@ -126,43 +126,11 @@ export function createHandler(cfg: EndpointConfig) {
         return
       }
 
-      const wantStream = req.query?.stream === '1'
-      if (wantStream) {
-        res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
-        res.setHeader('Cache-Control', 'no-cache')
-        res.setHeader('Connection', 'keep-alive')
-        res.status(200)
-        // A stream write can fail mid-flight — the client navigated away or the
-        // socket dropped (the in-game coach aborts on every view change). A raw
-        // throw here used to unwind into the catch below, which then tried to
-        // set a 500 status AFTER the SSE headers were already committed; that
-        // second throw was uncaught and reached the client as an opaque
-        // platform HTTP 500. Swallow write failures so the stream just ends.
-        const sse = (obj: unknown) => {
-          try {
-            res.write(`data: ${JSON.stringify(obj)}\n\n`)
-          } catch {
-            /* client gone — nothing more to send */
-          }
-        }
-        const outcome = await streamCompletion({
-          apiKey,
-          model: cfg.model,
-          ...(cfg.fallbackModel ? { fallbackModel: cfg.fallbackModel } : {}),
-          system: built.system,
-          prompt: built.prompt,
-          maxTokens: cfg.maxTokens,
-          onDelta: (text) => sse({ text }),
-        })
-        sse(outcome.ok ? { done: true, model: outcome.model } : { error: outcome.error })
-        try {
-          res.end()
-        } catch {
-          /* already closed */
-        }
-        return
-      }
-
+      // Single JSON response — NOT server-sent events. Manual SSE streaming
+      // (res.write on an event-stream) crashes Vercel's function runtime with
+      // FUNCTION_INVOCATION_FAILED before any model call, so this path is the
+      // reliable one. The model is still streamed FROM Anthropic here (lower
+      // latency to last token); we just accumulate and return it in one go.
       let full = ''
       const outcome = await streamCompletion({
         apiKey,
