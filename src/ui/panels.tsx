@@ -26,15 +26,16 @@ export function SeatStatusBadge({ status }: { status: SeatStatus }) {
   )
 }
 
-export function MeldRow({ melds, numbered }: { melds: Meld[]; numbered: boolean }) {
+export function MeldRow({ melds, numbered, small = false }: { melds: Meld[]; numbered: boolean; small?: boolean }) {
   if (melds.length === 0) return null
+  const size = small ? 'xs' : 'sm'
   return (
     <div className="flex gap-2 flex-wrap">
       {melds.map((m, i) => (
         <div key={i} className="flex gap-px">
           {m.tiles.length === 0
-            ? [0, 1, 2, 3].map((j) => <TileView key={j} tile={null} size="sm" />)
-            : m.tiles.map((t, j) => <TileView key={j} tile={t} size="sm" numbered={numbered} />)}
+            ? [0, 1, 2, 3].map((j) => <TileView key={j} tile={null} size={size} />)
+            : m.tiles.map((t, j) => <TileView key={j} tile={t} size={size} numbered={numbered} />)}
         </div>
       ))}
     </div>

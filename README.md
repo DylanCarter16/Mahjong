@@ -163,7 +163,7 @@ Config lives in `server/wrangler.jsonc`. Environment:
 
 | Name | Where | Purpose |
 | --- | --- | --- |
-| `VITE_GAME_SERVER` | front-end build/dev env | URL of the game server the browser opens a socket to (e.g. your `*.workers.dev`). Unset ⇒ `http://localhost:8787`. |
+| `VITE_GAME_SERVER` | front-end build/dev env | URL of the game server the browser opens a socket to (e.g. your `*.workers.dev`). Unset in a **dev** build ⇒ `http://localhost:8787`; unset in a **prod** build ⇒ the app throws a clear "not configured" error at connect time (it will not silently dial localhost). |
 | `ALLOWED_ORIGINS` | worker `vars` | comma-separated browser origins allowed to connect. Empty ⇒ allow any (dev posture; set your front-end origin in production). |
 | `ADMIN_KEY` | worker **secret** | gates the `/debug` state dump and `/reset` escape hatches. Unset ⇒ those routes are disabled. Set with `npx wrangler secret put ADMIN_KEY -c server/wrangler.jsonc`. |
 | `ANTHROPIC_API_KEY` | the **coach proxy** (Vercel), not the game server | the shared coach key. The game server never touches it — the two systems are separate on purpose. |
@@ -171,6 +171,10 @@ Config lives in `server/wrangler.jsonc`. Environment:
 The front end deploys as today (Vercel/static). The coach proxy stays on Vercel
 functions (`api/`). Only the sockets live on Cloudflare, so two providers — the
 front end + coach on one, the game server on the other.
+
+**Deploying multiplayer to production** — wiring the two hosts together, the exact
+env vars to set, and a real two-device smoke test — is its own runbook:
+[`DEPLOY.md`](DEPLOY.md). `.env.example` documents the front-end var.
 
 **Debugging a stuck room at 2am:** `npm run server:tail` for logs;
 `GET /api/rooms/<CODE>/debug` (with `x-admin-key`) dumps the room's full
@@ -208,11 +212,19 @@ client-supplied prompt/model/messages.
 
 In multiplayer the coach is exposed to strangers spending the host's key, so:
 it's a **host setting** (default on, shown in the lobby rule summary and visible
-to the room); the proxy rate-limits **per room** as well as per IP; and the
-**bring-your-own-key** hatch is surfaced in the lobby (memory only, never saved,
-never sent to the game server) to skip the shared limit. When the coach is off,
-the **local ranked-discard table** — computed by the engine, free and instant —
-still shows. Uses `claude-fable-5`, falls back to `claude-opus-4-8`.
+to the room); the proxy rate-limits per real IP (`x-real-ip`), per room, and
+under a **global daily ceiling** independent of IP; a malformed BYO key is
+rejected before any upstream call; and the **bring-your-own-key** hatch is
+surfaced in the lobby (memory only, never saved, never sent to the game server)
+to skip the shared limit. When the coach is off, the **local ranked-discard
+table** — computed by the engine, free and instant — still shows. Uses
+`claude-fable-5`, falls back to `claude-opus-4-8`.
+
+> **Deploy note:** the in-memory limiters are per warm serverless instance, so
+> the daily ceiling is a true global cap only once the counters are moved to
+> shared storage (Vercel KV / Upstash) — the `Limiter` interface is the drop-in
+> seam. For the game server, add Cloudflare rate-limiting rules on
+> `/api/rooms/*/info` and `/ws`. See `docs/AUDIT-RESPONSE.md`.
 
 ## Rules implemented & documented decisions
 

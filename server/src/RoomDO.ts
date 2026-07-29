@@ -32,6 +32,7 @@ import type { ClientMsg } from '../../src/room/protocol'
 import { RoomHost, type RoomHostSnapshot } from '../../src/room/RoomHost'
 import { NetTransport, seatTag } from './NetTransport'
 import type { Env } from './env'
+import { MAX_WS_MESSAGE_BYTES, timingSafeEqual } from './util'
 
 const SNAPSHOT_KEY = 'snapshot'
 const TOKENS_KEY = 'tokens'
@@ -164,7 +165,7 @@ export class RoomDO extends DurableObject<Env> {
     if (token) {
       // Reclaim: the token is the only credential that maps to a seat (§4).
       const tokens = ((await this.ctx.storage.get<Tokens>(TOKENS_KEY)) ?? {}) as Tokens
-      const claimed = SEATS.find((s) => tokens[s] !== undefined && tokens[s] === token)
+      const claimed = SEATS.find((s) => tokens[s] !== undefined && timingSafeEqual(tokens[s]!, token))
       if (claimed === undefined) return json({ error: 'bad token' }, 403)
       seat = claimed
       // One socket per seat: any older connection gets bumped.
@@ -230,9 +231,16 @@ export class RoomDO extends DurableObject<Env> {
       ws.close(CLOSE_ROOM_GONE, 'room no longer exists')
       return
     }
+    const raw = typeof message === 'string' ? message : ''
+    // Size guard BEFORE parsing (audit L7): no legitimate ClientMsg is large,
+    // so cap the parse rather than letting a client force a big JSON.parse.
+    if (raw.length === 0 || raw.length > MAX_WS_MESSAGE_BYTES) {
+      if (raw.length > MAX_WS_MESSAGE_BYTES) console.warn(`[room] oversized message from seat ${att.seat}`)
+      return
+    }
     let msg: ClientMsg
     try {
-      const parsed: unknown = JSON.parse(typeof message === 'string' ? message : '')
+      const parsed: unknown = JSON.parse(raw)
       if (typeof parsed !== 'object' || parsed === null || typeof (parsed as { type?: unknown }).type !== 'string') {
         throw new Error('bad shape')
       }

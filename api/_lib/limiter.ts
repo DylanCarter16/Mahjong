@@ -51,14 +51,22 @@ export function makeLimiter({ perMinute, perDay, now = Date.now }: LimiterOption
   }
 }
 
-/** Same-origin check: the Origin header's host must match the Host header. */
+/**
+ * Same-origin check: the Origin header's host must match the Host header.
+ *
+ * This is a CSRF control only — it stops a browser on another site, not a
+ * scripted client that sets its own headers (audit L2); the real abuse defense
+ * is the rate limiting in handler.ts. The cross-localhost-port branch exists
+ * for `npm run dev` (vite and the functions emulator on different ports) and is
+ * gated to non-production so it can't be leveraged where Host might be rewritten
+ * to `localhost`.
+ */
 export function sameOrigin(originHeader: string | undefined, hostHeader: string | undefined): boolean {
   if (!originHeader || !hostHeader) return false
   try {
     const origin = new URL(originHeader)
     if (origin.host === hostHeader) return true
-    // Local dev: vite (client) and the functions emulator may sit on
-    // different localhost ports.
+    if (process.env.NODE_ENV === 'production') return false
     const localhost = (h: string) => h.startsWith('localhost') || h.startsWith('127.0.0.1')
     return localhost(origin.host) && localhost(hostHeader)
   } catch {

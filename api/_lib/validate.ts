@@ -3,6 +3,7 @@
 // validator returns a SANITISED copy (unknown fields dropped, sizes capped) —
 // client input never flows into a prompt except through these.
 
+import { FAN_PATTERN_NAMES } from '../../src/engine/fan'
 import type { Action, PlayerView, RoundResult } from '../../src/engine/game'
 import { ALL_PLAY_KINDS, BONUS_KINDS } from '../../src/engine/tiles'
 import type { Meld, Seat, TileId, Wind } from '../../src/engine/types'
@@ -160,8 +161,14 @@ export function validateReview(x: unknown): ReviewPayload | null {
           ? x.result.fan.patterns
               .slice(0, 20)
               .filter(
+                // Allowlist the NAME against the scorer's own labels (audit L1):
+                // pattern names are cosmetic, so free-text here was a prompt-
+                // injection channel. Only canonical names reach the prompt.
                 (p): p is { name: string; faan: number } =>
-                  isObj(p) && typeof p.name === 'string' && p.name.length <= 40 && typeof p.faan === 'number',
+                  isObj(p) &&
+                  typeof p.name === 'string' &&
+                  FAN_PATTERN_NAMES.has(p.name) &&
+                  typeof p.faan === 'number',
               )
               .map((p) => ({ name: p.name, faan: p.faan }))
           : []

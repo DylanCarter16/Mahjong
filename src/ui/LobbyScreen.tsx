@@ -229,7 +229,7 @@ function Row({ label, htmlFor, children }: { label: string; htmlFor: string; chi
   )
 }
 
-export function summariseRules(r: HouseRules): string {
+function summariseRules(r: HouseRules): string {
   return [
     `${r.faanMinimum} faan min`,
     r.flowers ? 'flowers on' : 'no flowers',

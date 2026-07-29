@@ -11,7 +11,7 @@
 import type { Difficulty } from '../engine/bots'
 import type { GameState } from '../engine/game'
 import type { Seat } from '../engine/types'
-import { SEATS } from '../engine/types'
+import { isSeat, SEATS } from '../engine/types'
 import type { Clock, TimerHandle } from './clock'
 import {
   DEFAULT_HOUSE_RULES,
@@ -296,8 +296,16 @@ export class RoomHost {
       this.afterRoomChange()
       return
     }
-    // seatKind: the host may open a seat or assign a bot — never touch a
-    // seat a human is sitting in.
+    // seatKind: validate the seat index before using it as an object key —
+    // an unvalidated `msg.seat` (e.g. '__proto__') would be object injection
+    // (audit L4). The runner does the same for game intents.
+    if (!isSeat(msg.seat)) {
+      this.logIssue(`lobby seatKind with invalid seat ${JSON.stringify(msg.seat)}`)
+      this.reject(seat, 'invalid seat')
+      return
+    }
+    // The host may open a seat or assign a bot — never touch a seat a human
+    // is sitting in.
     const target = this.seats[msg.seat]
     if (!target || msg.seat === this.hostSeat) {
       this.reject(seat, 'cannot change that seat')
@@ -429,7 +437,17 @@ function seatStatus(st: SeatState): SeatInfo['status'] {
 }
 
 function sanitizeName(raw: string): string {
-  const name = String(raw).replace(/[\r\n\t]/g, ' ').trim().slice(0, 24)
+  // Strip ALL Unicode control + format chars — bidi overrides (U+202E),
+  // zero-width joiners, and C0/C1 controls — so a name can't visually
+  // impersonate another seat or scramble the lobby layout (audit L6). Names
+  // are never an XSS vector (React escapes every render site), this is a
+  // display-spoofing defense. NFC-normalize and cap at 24.
+  const name = String(raw)
+    .replace(/\p{C}/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .normalize('NFC')
+    .slice(0, 24)
   return name.length > 0 ? name : 'Player'
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { rankDiscards, readOpponents } from '../analysis'
+import { claimAnalysis, rankDiscards, readOpponents } from '../analysis'
 import { createGameWithWall, playerView, type PlayerView } from '../game'
 import { hand } from '../tiles'
 import type { Meld, Seat, TileId } from '../types'
@@ -123,5 +123,45 @@ describe('readOpponents', () => {
     const v = playerView(s, 0)
     expect(rankDiscards(v).length).toBeGreaterThan(5)
     expect(readOpponents(v)).toHaveLength(3)
+  })
+})
+
+describe('claimAnalysis', () => {
+  it('sees a winning claim and a shanten-improving pung', () => {
+    // tenpai on dR pair; a discarded dR wins, and pung-ing the wE also exists
+    const v = mkView({
+      concealed: hand('m1 m2 m3 p4 p5 p6 s7 s8 s9 wE wE wE dR'),
+      phase: 'claims',
+      pendingDiscard: { tile: 'dR', from: 3 },
+    })
+    const claims = claimAnalysis(v)
+    expect(claims[0]).toMatchObject({ claim: 'win', shantenAfter: -1, recommended: true })
+  })
+
+  it('rates a pung by what it does to shanten', () => {
+    const v = mkView({
+      concealed: hand('m1 m2 m3 p4 p5 p6 s7 s8 wE wE dR dG p9'),
+      phase: 'claims',
+      pendingDiscard: { tile: 'wE', from: 1 },
+    })
+    const pung = claimAnalysis(v).find((c) => c.claim === 'pung')!
+    expect(pung.shantenBefore).toBe(2)
+    expect(pung.shantenAfter).toBeLessThanOrEqual(2)
+  })
+
+  it('offers chows only to the next seat', () => {
+    const base = {
+      concealed: hand('m2 m3 p1 p2 s5 s6 s7 wE wE wN dR dG m9'),
+      phase: 'claims' as const,
+      pendingDiscard: { tile: 'm4', from: 3 as const },
+    }
+    const nextSeatView = mkView({ ...base, seat: 0 }) // seat 0 follows seat 3
+    expect(claimAnalysis(nextSeatView).some((c) => typeof c.claim === 'object')).toBe(true)
+    const farSeatView = mkView({ ...base, seat: 2, pendingDiscard: { tile: 'm4', from: 3 } })
+    expect(claimAnalysis(farSeatView).some((c) => typeof c.claim === 'object')).toBe(false)
+  })
+
+  it('returns nothing without a pending discard', () => {
+    expect(claimAnalysis(mkView({ concealed: hand('m1 m2 m3') }))).toEqual([])
   })
 })

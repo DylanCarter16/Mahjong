@@ -141,6 +141,20 @@ describe('RoomHost lobby', () => {
     expect(lastRoom(h.inbox[0]).room.seats[1].kind).toBe('human')
   })
 
+  it('rejects a lobby op with a non-seat key (no object injection) — L4', () => {
+    const h = makeHost()
+    h.host.joinHuman('Host')
+    const before = Object.getPrototypeOf(h.host.roomInfo(0).seats)
+    // A hostile host sends seat '__proto__' — must be rejected before it is
+    // used as an object key.
+    h.send(0, { type: 'lobby', op: 'seatKind', seat: '__proto__' as never, kind: 'bot' })
+    expect(h.inbox[0].some((m) => m.type === 'rejected')).toBe(true)
+    expect(h.issues.some((i) => /invalid seat/.test(i))).toBe(true)
+    // Prototype untouched; the four real seats still resolve normally.
+    expect(Object.getPrototypeOf(h.host.roomInfo(0).seats)).toBe(before)
+    expect(h.host.roomInfo(0).seats[0].kind).toBe('human')
+  })
+
   it('host sets rules; they are sanitised on the way in', () => {
     const h = makeHost()
     h.host.joinHuman('Host')
