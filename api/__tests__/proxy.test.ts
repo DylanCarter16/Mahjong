@@ -223,3 +223,52 @@ describe('coach facts prompt (§3.1)', () => {
     expect(built.prompt).toContain('Current shanten:')
   })
 })
+
+describe('claim facts prompt (§3.1, claim coach)', () => {
+  // A claims-phase view: South discarded 5-Characters and I hold two of them,
+  // so pung is on the table. Built by overriding a real view's phase, which is
+  // exactly what the validator sees from a live claim window.
+  const claimView = () => {
+    const v = realView() as Record<string, unknown>
+    return {
+      ...v,
+      concealed: ['m5', 'm5', 'm3', 'm4', 'p1', 'p2', 'p3', 's7', 's8', 's9', 'wE', 'wE', 'dR'],
+      phase: 'claims',
+      turn: 1,
+      pendingDiscard: { tile: 'm5', from: 1 },
+    }
+  }
+
+  it('asks the claim question, not the discard question, and carries engine shanten', () => {
+    const built = buildCoachPrompt({ view: claimView() })!
+    expect(built.prompt).toContain('Claim options, computed by the engine')
+    expect(built.prompt).toContain('pung (three of a kind)')
+    expect(built.prompt).toMatch(/-> shanten -?\d/)
+    expect(built.prompt).toContain('Cost of claiming')
+    expect(built.prompt.toLowerCase()).toContain('no recomputation')
+    // Not the discard ask.
+    expect(built.prompt).not.toContain('Discard options, ranked by the engine')
+  })
+
+  it('names the concealed-hand cost only when the hand is actually concealed', () => {
+    const concealedAsk = buildCoachPrompt({ view: claimView() })!.prompt
+    expect(concealedAsk).toContain('fully concealed right now')
+
+    const exposed = {
+      ...claimView(),
+      melds: {
+        0: [{ type: 'pung', tiles: ['s1', 's1', 's1'], concealed: false }],
+        1: [],
+        2: [],
+        3: [],
+      },
+      concealed: ['m5', 'm5', 'm3', 'm4', 'p1', 'p2', 'p3', 's7', 's8', 's9'],
+    }
+    expect(buildCoachPrompt({ view: exposed })!.prompt).toContain('already have an exposed set')
+  })
+
+  it('falls back to the discard prompt when nothing is claimable', () => {
+    const nothing = { ...claimView(), concealed: ['p4', 'p7', 's2', 's5', 'wW', 'dG'] }
+    expect(buildCoachPrompt({ view: nothing })!.prompt).toContain('Discard options, ranked by the engine')
+  })
+})

@@ -166,7 +166,21 @@ function buildReviewPrompt(body) {
 
 // api/_lib/anthropic.ts
 var ENDPOINT = "https://api.anthropic.com/v1/messages";
+var DEFAULT_UPSTREAM_TIMEOUT_MS = 25e3;
+var TIMED_OUT = "the coach took too long to answer";
 async function streamOnce(opts) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), opts.timeoutMs ?? DEFAULT_UPSTREAM_TIMEOUT_MS);
+  try {
+    return await streamRequest(opts, ctl.signal);
+  } catch (e) {
+    if (ctl.signal.aborted) return { ok: false, error: TIMED_OUT, status: 504 };
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function streamRequest(opts, signal) {
   const res = await fetch(ENDPOINT, {
     method: "POST",
     headers: {
@@ -180,7 +194,8 @@ async function streamOnce(opts) {
       system: opts.system,
       stream: true,
       messages: [{ role: "user", content: opts.prompt }]
-    })
+    }),
+    signal
   });
   if (!res.ok || !res.body) {
     let message = `upstream error (HTTP ${res.status})`;
@@ -224,6 +239,8 @@ async function streamOnce(opts) {
   return { ok: true, model: opts.model };
 }
 async function streamCompletion(opts) {
+  const budget = opts.timeoutMs ?? DEFAULT_UPSTREAM_TIMEOUT_MS;
+  const startedAt = Date.now();
   let first;
   try {
     first = await streamOnce(opts);
@@ -231,8 +248,10 @@ async function streamCompletion(opts) {
     first = { ok: false, error: "network error reaching the model API" };
   }
   if (first.ok || !opts.fallbackModel) return first;
+  const left = budget - (Date.now() - startedAt);
+  if (first.status === 504 || left < 3e3) return first;
   try {
-    const second = await streamOnce({ ...opts, model: opts.fallbackModel });
+    const second = await streamOnce({ ...opts, model: opts.fallbackModel, timeoutMs: left });
     return second.ok ? second : { ok: false, error: second.error, status: second.status };
   } catch {
     return { ok: false, error: "network error reaching the model API" };
@@ -360,12 +379,19 @@ function createHandler(cfg) {
         system: built.system,
         prompt: built.prompt,
         maxTokens: cfg.maxTokens,
+        ...cfg.timeoutMs ? { timeoutMs: cfg.timeoutMs } : {},
         onDelta: (text) => {
           full += text;
         }
       });
       if (!outcome.ok) {
-        res.status(outcome.status === 401 ? 401 : 502).json({ error: outcome.error });
+        res.status(outcome.status === 401 ? 401 : outcome.status === 504 ? 504 : 502).json({
+          error: outcome.error
+        });
+        return;
+      }
+      if (full.trim().length === 0) {
+        res.status(502).json({ error: "the coach returned an empty answer" });
         return;
       }
       res.status(200).json({ text: full, model: outcome.model });
@@ -383,11 +409,18 @@ function createHandler(cfg) {
 }
 
 // api/_src/review.ts
+var maxDuration = 60;
+var UPSTREAM_TIMEOUT_MS = 5e4;
 var review_default = createHandler({
   buildPrompt: buildReviewPrompt,
   model: "claude-sonnet-5",
-  maxTokens: 700
+  // The coach has always had a fallback model; the review had none, so one bad
+  // upstream response was terminal. Same ladder, one rung faster.
+  fallbackModel: "claude-haiku-4-5-20251001",
+  maxTokens: 700,
+  timeoutMs: UPSTREAM_TIMEOUT_MS
 });
 export {
-  review_default as default
+  review_default as default,
+  maxDuration
 };

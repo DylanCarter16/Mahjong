@@ -2,7 +2,7 @@
 // two never drift. Multiplayer adds real names, per-seat connection status, a
 // claim-window countdown on the claim buttons, and the reconnecting overlay.
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { evalMyDiscards } from './aids'
 import type { Action, PlayerView } from '../engine/game'
 import type { Seat } from '../engine/types'
@@ -49,6 +49,16 @@ export function MultiplayerTable({
   const isHost = room.hostSeat === me
   const myDiscardTurn = view.phase === 'discard' && view.turn === me
 
+  // The win dialog covers the whole table, including the coach panel below it.
+  // Solo has always been able to dismiss it; multiplayer passed a no-op onClose,
+  // so "review the table first" did nothing and the round review was
+  // unreachable — you could only start the next round. Same dismiss state here.
+  const [resultDismissed, setResultDismissed] = useState(false)
+  const phase = view.phase
+  useEffect(() => {
+    if (phase !== 'finished') setResultDismissed(false)
+  }, [phase])
+
   const evals = useMemo(
     () => (beginnerAids && myDiscardTurn ? evalMyDiscards(view) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -88,7 +98,7 @@ export function MultiplayerTable({
       }
       coachSlot={coachSlot}
     >
-      {finished && (
+      {finished && resultDismissed && (
         <div className="flex justify-center pb-6">
           <button
             className="min-h-11 rounded-lg bg-emerald-800 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-700 cursor-pointer disabled:opacity-40"
@@ -100,14 +110,15 @@ export function MultiplayerTable({
           </button>
         </div>
       )}
-      {finished && (
+      {finished && !resultDismissed && (
         <WinDialog
           result={finished.result}
           match={match}
           seatLabel={label}
           youSeat={me}
-          onNewRound={isHost ? onNewRound : () => {}}
-          onClose={() => {}}
+          onNewRound={onNewRound}
+          canStartNextRound={isHost}
+          onClose={() => setResultDismissed(true)}
         />
       )}
       <ReconnectingOverlay status={status} detail={statusDetail} onLeave={onLeave} />

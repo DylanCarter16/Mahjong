@@ -8,7 +8,7 @@ import { cleanCoachText } from './coachText'
 
 export type AnalysisResult =
   | { ok: true; text: string; model?: string }
-  | { ok: false; error: string; rateLimited?: boolean }
+  | { ok: false; error: string; rateLimited?: boolean; timedOut?: boolean }
 
 /** Strip markdown code fences if the model wrapped its answer in them. */
 export function stripFences(text: string): string {
@@ -23,16 +23,60 @@ export interface RequestOptions {
   signal?: AbortSignal
   /** Streaming callback; receives the full accumulated text on each delta. */
   onDelta?: (fullText: string) => void
+  /** Hard ceiling on the whole round trip. See DEFAULT_TIMEOUT_MS. */
+  timeoutMs?: number
 }
 
+/**
+ * Client-side ceilings. `fetch` never times out on its own, so without these a
+ * proxy (or platform) that stalls leaves the panel spinning forever — that was
+ * the "review never returns" bug. Each ceiling sits just ABOVE the matching
+ * server budget (api/_src/*.ts `UPSTREAM_TIMEOUT_MS` + `maxDuration`) so the
+ * server's own clean error wins the race when it can produce one; this is the
+ * backstop for when the platform kills the function without answering.
+ */
+export const COACH_TIMEOUT_MS = 45_000
+export const REVIEW_TIMEOUT_MS = 65_000
+const DEFAULT_TIMEOUT_MS = COACH_TIMEOUT_MS
+
 export const requestCoach = (view: PlayerView, opts: RequestOptions = {}) =>
-  post('/api/coach', { view }, opts)
+  post('/api/coach', { view }, { timeoutMs: COACH_TIMEOUT_MS, ...opts })
 
 export const requestReview = (log: Action[], result: RoundResult | null, opts: RequestOptions = {}) =>
-  post('/api/review', { log, result }, opts)
+  post('/api/review', { log, result }, { timeoutMs: REVIEW_TIMEOUT_MS, ...opts })
+
+/**
+ * One AbortController fed by both the caller's signal and our own timer, so we
+ * can tell "the user navigated away" (cancelled — stay silent) from "nothing
+ * came back in time" (a real error the panel must show with a retry).
+ * Deliberately hand-rolled rather than `AbortSignal.any`/`AbortSignal.timeout`,
+ * which older mobile Safari does not have.
+ */
+function withTimeout(signal: AbortSignal | undefined, ms: number) {
+  const ctl = new AbortController()
+  const state = { timedOut: false }
+  const onAbort = () => ctl.abort()
+  if (signal) {
+    if (signal.aborted) ctl.abort()
+    else signal.addEventListener('abort', onAbort, { once: true })
+  }
+  const timer = setTimeout(() => {
+    state.timedOut = true
+    ctl.abort()
+  }, ms)
+  return {
+    signal: ctl.signal,
+    state,
+    done: () => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+    },
+  }
+}
 
 async function post(path: string, body: unknown, opts: RequestOptions): Promise<AnalysisResult> {
-  const { byoKey, roomCode, signal, onDelta } = opts
+  const { byoKey, roomCode, signal, onDelta, timeoutMs = DEFAULT_TIMEOUT_MS } = opts
+  const guard = withTimeout(signal, timeoutMs)
   try {
     // One JSON response, no client-side streaming. Server-side SSE streaming
     // crashes Vercel's function runtime (FUNCTION_INVOCATION_FAILED, before any
@@ -47,7 +91,7 @@ async function post(path: string, body: unknown, opts: RequestOptions): Promise<
         ...(roomCode ? { 'x-room-code': roomCode } : {}),
       },
       body: JSON.stringify(body),
-      ...(signal ? { signal } : {}),
+      signal: guard.signal,
     })
     if (res.status === 429) {
       return {
@@ -64,8 +108,15 @@ async function post(path: string, body: unknown, opts: RequestOptions): Promise<
     // so the coach panel updates exactly as before.
     onDelta?.(text)
     return { ok: true, text, ...(data.model ? { model: data.model } : {}) }
-  } catch (e) {
-    if (e instanceof DOMException && e.name === 'AbortError') return { ok: false, error: 'cancelled' }
+  } catch {
+    if (guard.state.timedOut) {
+      return { ok: false, error: 'The coach took too long to answer.', timedOut: true }
+    }
+    // The caller aborted (turn moved on, panel closed, unmount): not an error
+    // anyone needs to see, and callers drop this one silently.
+    if (guard.signal.aborted) return { ok: false, error: 'cancelled' }
     return { ok: false, error: 'Network error reaching the coach.' }
+  } finally {
+    guard.done()
   }
 }

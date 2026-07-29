@@ -54,7 +54,16 @@ export function GameScreen({ settings, onChangeSettings }: {
           </header>
         }
         actionBar={<ActionBar view={view} onAction={dispatch} />}
-        coachSlot={<AnalysisPanel view={view} finished={finished} byoKey={settings.byoKey || undefined} />}
+        coachSlot={
+          <AnalysisPanel
+            view={view}
+            finished={finished}
+            byoKey={settings.byoKey || undefined}
+            /* Solo claim windows never expire (SOLO_TIMING.claimWindowMs = null),
+               so there is time to think about a claim — hence solo-only. */
+            claimAdvice
+          />
+        }
       >
         {view.phase === 'finished' && resultDismissed && (
           <div className="flex justify-center pb-6">

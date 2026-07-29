@@ -13,6 +13,13 @@ export interface EndpointConfig {
   model: string
   fallbackModel?: string
   maxTokens: number
+  /**
+   * Upstream budget. MUST stay under the function's `maxDuration` so we always
+   * answer with our own JSON error rather than letting the platform kill the
+   * invocation mid-flight (which the browser sees as a request that never
+   * returns — the review bug).
+   */
+  timeoutMs?: number
 }
 
 // In-memory rate buckets. IMPORTANT (audit H2): these are per warm function
@@ -139,12 +146,21 @@ export function createHandler(cfg: EndpointConfig) {
         system: built.system,
         prompt: built.prompt,
         maxTokens: cfg.maxTokens,
+        ...(cfg.timeoutMs ? { timeoutMs: cfg.timeoutMs } : {}),
         onDelta: (text) => {
           full += text
         },
       })
       if (!outcome.ok) {
-        res.status(outcome.status === 401 ? 401 : 502).json({ error: outcome.error })
+        res.status(outcome.status === 401 ? 401 : outcome.status === 504 ? 504 : 502).json({
+          error: outcome.error,
+        })
+        return
+      }
+      // A model that answered with nothing is a failure, not an empty success:
+      // returning 200 with "" left the panel showing a blank box.
+      if (full.trim().length === 0) {
+        res.status(502).json({ error: 'the coach returned an empty answer' })
         return
       }
       res.status(200).json({ text: full, model: outcome.model })

@@ -3,7 +3,15 @@ import type { MatchInfo } from './useGame'
 import { SEAT_NAMES } from './panels'
 import { SEATS, type Seat } from '../engine/types'
 
-export function WinDialog({ result, match, onNewRound, onClose, seatLabel, youSeat = 0 }: {
+export function WinDialog({
+  result,
+  match,
+  onNewRound,
+  onClose,
+  seatLabel,
+  youSeat = 0,
+  canStartNextRound = true,
+}: {
   result: RoundResult
   match: MatchInfo
   onNewRound: () => void
@@ -12,6 +20,8 @@ export function WinDialog({ result, match, onNewRound, onClose, seatLabel, youSe
   seatLabel?: (seat: Seat) => string
   /** Which seat is the viewer, for "you win" vs "they win" phrasing. */
   youSeat?: Seat
+  /** Multiplayer: only the host deals the next round; others wait. */
+  canStartNextRound?: boolean
 }) {
   const r = result
   const name = (seat: Seat) => seatLabel?.(seat) ?? SEAT_NAMES[seat]
@@ -65,16 +75,18 @@ export function WinDialog({ result, match, onNewRound, onClose, seatLabel, youSe
           </div>
         </div>
         <button
-          className="mt-5 w-full rounded-lg bg-amber-400 py-2.5 font-semibold text-amber-950 hover:bg-amber-300 cursor-pointer"
+          className="mt-5 min-h-11 w-full rounded-lg bg-amber-400 py-2.5 font-semibold text-amber-950 hover:bg-amber-300 disabled:opacity-40 cursor-pointer"
           onClick={onNewRound}
+          disabled={!canStartNextRound}
+          title={canStartNextRound ? '' : 'The host starts the next round'}
         >
-          Next round →
+          {canStartNextRound ? 'Next round →' : 'Waiting for host…'}
         </button>
         <button
-          className="mt-2 w-full rounded-lg bg-emerald-800 py-2 text-sm text-emerald-100 hover:bg-emerald-700 cursor-pointer"
+          className="mt-2 min-h-11 w-full rounded-lg bg-emerald-800 py-2 text-sm text-emerald-100 hover:bg-emerald-700 cursor-pointer"
           onClick={onClose}
         >
-          Review the table first (AI coach available below)
+          Review this round (coach panel below)
         </button>
       </div>
     </div>
