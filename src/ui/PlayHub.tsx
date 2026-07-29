@@ -8,6 +8,7 @@ import { isValidRoomCode, normalizeRoomCode } from '../room/codes'
 import type { JoinOptions } from '../net/useRoom'
 import { GameScreen } from './GameScreen'
 import { MultiplayerScreen } from './MultiplayerScreen'
+import { SettingsPanel } from './SettingsPanel'
 import type { Settings } from './useGame'
 
 type Mode = { kind: 'menu' } | { kind: 'solo' } | { kind: 'mp'; join: JoinOptions }
@@ -38,7 +39,26 @@ export function PlayHub({ settings, onChangeSettings }: {
       />
     )
   }
-  return <Menu onSolo={() => setMode({ kind: 'solo' })} onJoin={(join) => setMode({ kind: 'mp', join })} />
+  return (
+    <Menu
+      settings={settings}
+      onChangeSettings={onChangeSettings}
+      onSolo={() => setMode({ kind: 'solo' })}
+      onJoin={(join) => setMode({ kind: 'mp', join })}
+    />
+  )
+}
+
+const DIFF_SHORT: Record<string, string> = { easy: 'easy', intermediate: 'int', advanced: 'adv' }
+
+/** What you are about to be dealt, in one line, before you commit to it. */
+function rulesSummary(s: Settings): string {
+  return [
+    `${s.faanMinimum} faan min`,
+    s.flowers ? 'flowers on' : 'no flowers',
+    `bots: ${[1, 2, 3].map((seat) => DIFF_SHORT[s.difficulties[seat as 1 | 2 | 3]]).join('/')}`,
+    s.beginnerAids ? 'aids on' : 'aids off',
+  ].join(' · ')
 }
 
 function BackBar({ onBack }: { onBack: () => void }) {
@@ -54,10 +74,21 @@ function BackBar({ onBack }: { onBack: () => void }) {
   )
 }
 
-function Menu({ onSolo, onJoin }: { onSolo: () => void; onJoin: (join: JoinOptions) => void }) {
+function Menu({
+  settings,
+  onChangeSettings,
+  onSolo,
+  onJoin,
+}: {
+  settings: Settings
+  onChangeSettings: (s: Settings) => void
+  onSolo: () => void
+  onJoin: (join: JoinOptions) => void
+}) {
   const [panel, setPanel] = useState<'none' | 'create' | 'join'>('none')
   const [name, setName] = useState(() => localStorage.getItem(LAST_NAME_KEY) ?? '')
   const [code, setCode] = useState('')
+  const [showSettings, setShowSettings] = useState(false)
 
   const trimmedName = name.trim()
   const validCode = isValidRoomCode(normalizeRoomCode(code))
@@ -78,6 +109,18 @@ function Menu({ onSolo, onJoin }: { onSolo: () => void; onJoin: (join: JoinOptio
         <p className="mt-1 text-sm text-emerald-200/70">
           You and three bots. Fully offline — no signal needed.
         </p>
+        {/* Set the rules BEFORE the deal. Mid-game they can only land on the
+            next round, which is the right behaviour for a hand in progress and
+            the wrong first experience — so the choice lives here too. */}
+        <div className="mt-3 flex items-center justify-between gap-2 rounded-xl border border-emerald-800 bg-emerald-900/50 px-3 py-2">
+          <span className="min-w-0 text-xs text-emerald-200/80">{rulesSummary(settings)}</span>
+          <button
+            className="min-h-11 shrink-0 rounded-lg border border-emerald-600 px-3 text-sm text-emerald-100 hover:bg-emerald-800 cursor-pointer"
+            onClick={() => setShowSettings(true)}
+          >
+            ⚙ Change
+          </button>
+        </div>
         <button
           className="mt-3 min-h-11 w-full rounded-xl bg-amber-400 py-3 font-semibold text-amber-950 hover:bg-amber-300 cursor-pointer"
           onClick={onSolo}
@@ -159,7 +202,23 @@ function Menu({ onSolo, onJoin }: { onSolo: () => void; onJoin: (join: JoinOptio
             )}
           </div>
         )}
+        <p className="mt-3 text-xs text-emerald-300/60">
+          In a room the rules are the host's, set in the lobby. Your display preferences travel with
+          you:{' '}
+          <button className="underline cursor-pointer" onClick={() => setShowSettings(true)}>
+            open settings
+          </button>
+        </p>
       </div>
+
+      {showSettings && (
+        <SettingsPanel
+          settings={settings}
+          onChange={onChangeSettings}
+          onClose={() => setShowSettings(false)}
+          scope="pre-game"
+        />
+      )}
     </div>
   )
 }

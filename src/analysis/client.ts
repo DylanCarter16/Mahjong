@@ -34,8 +34,17 @@ export interface RequestOptions {
  * server budget (api/_src/*.ts `UPSTREAM_TIMEOUT_MS` + `maxDuration`) so the
  * server's own clean error wins the race when it can produce one; this is the
  * backstop for when the platform kills the function without answering.
+ *
+ * The COACH ceiling is deliberately short: it runs while you are sitting there
+ * waiting to play, so 20 seconds is the whole patience budget — past that,
+ * failing with a retry beats a spinner. The panel counts the seconds out loud
+ * so the cut-off is legible rather than mysterious.
+ *
+ * The REVIEW keeps a longer one. It is a different call — ~700 tokens of prose
+ * over a whole round, read after the hand is over, with nobody waiting on a
+ * turn — and cutting it at 20s is what made it fail in the first place.
  */
-export const COACH_TIMEOUT_MS = 45_000
+export const COACH_TIMEOUT_MS = 20_000
 export const REVIEW_TIMEOUT_MS = 65_000
 const DEFAULT_TIMEOUT_MS = COACH_TIMEOUT_MS
 

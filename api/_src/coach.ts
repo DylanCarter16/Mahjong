@@ -12,10 +12,12 @@ import { createHandler } from '../_lib/handler'
 
 // Same reasoning as api/_src/review.ts: an upstream budget strictly inside the
 // function budget, so a stalled model turns into a JSON error the panel can
-// retry rather than a request that never returns. Tighter here — this one runs
-// while you are waiting to play.
+// retry rather than a request that never returns. Much tighter here — this one
+// runs while you are waiting to play, so the whole patience budget is 20s
+// (COACH_TIMEOUT_MS on the client). 18s leaves room for us to answer first,
+// with our own error, before the client's own cut-off fires.
 export const maxDuration = 60
-const UPSTREAM_TIMEOUT_MS = 30_000
+const UPSTREAM_TIMEOUT_MS = 18_000
 
 export default createHandler({
   buildPrompt: buildCoachPrompt,

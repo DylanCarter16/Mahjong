@@ -73,9 +73,13 @@ export function MultiplayerScreen({
 
   const you = state.you
   // Two independent gates (§B3). The house rule decides whether MODEL calls are
-  // allowed at all; the aids — engine-computed, free, no request — follow the
-  // player's own toggle within whatever the host allows. When both are off the
-  // panel renders nothing rather than a launcher that opens an empty box.
+  // allowed at all; the aids — engine-computed, free, no request — are gated by
+  // the room's own aid rule. When both are off the panel renders nothing rather
+  // than a launcher that opens an empty box.
+  //
+  // The personal toggle is a third, narrower thing: it governs the ring
+  // overlays drawn on your tiles unasked, which is why it can be off (its
+  // default) while the panel you deliberately opened still shows its table.
   const aidsAllowedByHost = state.room.rules.beginnerAidsAllowed
   const aidsOn = settings.beginnerAids && aidsAllowedByHost
   const coachSlot = (
@@ -85,7 +89,7 @@ export function MultiplayerScreen({
       byoKey={settings.byoKey || undefined}
       roomCode={state.room.code}
       coachEnabled={state.room.rules.coachAllowed}
-      aidsEnabled={aidsOn}
+      aidsEnabled={aidsAllowedByHost}
     />
   )
 

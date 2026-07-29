@@ -61,6 +61,53 @@ async function createRoom({ coach, aids }) {
   await page.waitForTimeout(600)
 }
 
+// --------------------------------------------------- pre-game solo setup --
+// Rules chosen from the MENU must apply to the very first hand. Mid-game they
+// can only land on the next round, which is right for a hand in progress and
+// wrong as a first experience.
+await page.goto(APP, { waitUntil: 'networkidle' })
+{
+  const menu = await body()
+  if (/faan min/.test(menu) && /flowers/.test(menu) && /bots:/.test(menu))
+    ok('pre-game: the solo card shows the rules you are about to be dealt')
+  else fail(`pre-game: no rules summary on the menu — "${menu.slice(0, 120)}"`)
+
+  if (/aids off/.test(menu)) ok('pre-game: beginner aids default to OFF')
+  else fail('pre-game: beginner aids are not off by default')
+
+  await page.getByRole('button', { name: '⚙ Change' }).click()
+  await page.waitForTimeout(300)
+  const panel = await body()
+  // innerText carries the CSS uppercase transform, hence the /i.
+  if (/Rules \(applied when you start\)/i.test(panel)) ok('pre-game: rules are editable before any game exists')
+  else fail('pre-game: the panel does not offer rules before the game')
+  await page.selectOption('#faan-min', '1')
+  await page.waitForTimeout(200)
+  await page.screenshot({ path: `${OUT}/pre-game-settings.png` })
+  await page.getByRole('button', { name: 'Close settings' }).click()
+  await page.waitForTimeout(200)
+
+  await page.getByRole('button', { name: 'Start solo game' }).click()
+  await page.waitForSelector('text=tiles left', { timeout: 15000 })
+  const table = await body()
+  if (/min 1 faan/.test(table)) ok('pre-game: the FIRST hand is dealt under the rules just chosen')
+  else fail(`pre-game: the first hand ignored the chosen rules — "${(table.match(/min \d+ faan/) || ['none'])[0]}"`)
+
+  // And the mid-game escape hatch: change a rule, deal it now.
+  await page.getByRole('button', { name: /Settings/ }).click()
+  await page.waitForTimeout(300)
+  await page.selectOption('#faan-min', '3')
+  const applyNow = page.getByRole('button', { name: 'Deal a new game with these rules' })
+  if (await applyNow.count()) {
+    await applyNow.click()
+    await page.waitForSelector('text=tiles left', { timeout: 15000 })
+    await page.waitForTimeout(600)
+    if (/min 3 faan/.test(await body())) ok('mid-game: "deal a new game with these rules" applies them immediately')
+    else fail('mid-game: the redeal did not pick up the new rules')
+  } else fail('mid-game: no way to apply rule changes without waiting for the next round')
+  await page.screenshot({ path: `${OUT}/solo-redealt.png` })
+}
+
 // ---------------------------------------------------------------- B1 + B2 --
 await createRoom({ coach: true, aids: true })
 ok('multiplayer table reached (coach on, aids on)')

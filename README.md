@@ -255,6 +255,20 @@ want the beginner aids, reduced motion, your own API key. The ⚙ on the
 multiplayer table opens exactly those. Where the two meet, the host wins: with
 `beginnerAidsAllowed` off, your personal aids toggle is disabled and says why.
 
+The personal **beginner aids** toggle is **off by default** and governs the hint
+rings drawn on your own tiles — the unsolicited half. The coach panel's ranked
+tables are opt-in by opening the panel, so they follow the room's aid rule, not
+your ring preference.
+
+**Solo rules are chosen before the deal.** The menu's solo card shows what you
+are about to be dealt (`3 faan min · flowers on · bots: easy/int/adv · aids
+off`) with a ⚙ that edits it, so the *first* hand already uses your rules.
+Mid-game, rule changes can only land on the next round — a hand cannot have its
+rules swapped halfway through, and the runner rightly refuses a new round
+mid-hand because that rule is multiplayer's authority model. When next round
+isn't what you meant, solo settings offer "deal a new game with these rules",
+which builds a fresh local room rather than weakening the protocol.
+
 > **Deploy note:** the in-memory limiters are per warm serverless instance, so
 > the daily ceiling is a true global cap only once the counters are moved to
 > shared storage (Vercel KV / Upstash) — the `Limiter` interface is the drop-in
