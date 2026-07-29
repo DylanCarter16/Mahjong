@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && npm run build:api",
+    "build:api": "node scripts/build-api.mjs",
     "postbuild": "node scripts/check-no-keys.mjs",
     "preview": "vite preview",
     "pretest": "node scripts/check-no-keys.mjs",
@@ -36,6 +37,7 @@
     "@types/react-dom": "^19.2.3",
     "@vercel/node": "^5.8.25",
     "@vitejs/plugin-react": "^6.0.3",
+    "esbuild": "^0.27.7",
     "playwright-core": "^1.61.1",
     "tailwindcss": "^4.3.2",
     "typescript": "^5.9.3",

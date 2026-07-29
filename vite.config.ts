@@ -53,7 +53,7 @@ async function handle(
         return vres
       },
     })
-    const mod = await server.ssrLoadModule(`/api/${m[1]}.ts`)
+    const mod = await server.ssrLoadModule(`/api/_src/${m[1]}.ts`)
     await (mod.default as (a: unknown, b: unknown) => Promise<void>)(vreq, vres)
   } catch (e) {
     res.statusCode = 500
