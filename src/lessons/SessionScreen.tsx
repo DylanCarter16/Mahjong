@@ -8,12 +8,14 @@ import { conceptById, type ConceptId } from './concepts'
 import { generateItem, type Difficulty, type LessonItem } from './generators'
 import { ItemRunner, type ItemResult } from './ItemRunner'
 import {
+  buildFocusedSession,
   buildSession,
   DAILY_GOAL,
   gradeAnswer,
   masteryOf,
   type ProgressState,
 } from './mastery'
+import { timedNotice } from './timing'
 
 const CONFIDENCE_CONCEPTS = new Set<string>(['read.suit-inference', 'read.threat', 'defence.safe-tiles', 'defence.push-fold'])
 
@@ -25,15 +27,23 @@ interface QueueEntry {
   requeued: boolean
 }
 
-export function SessionScreen({ progress, update, onExit }: {
+export function SessionScreen({ progress, update, onExit, focus, focusTitle }: {
   progress: ProgressState
   update: (fn: (s: ProgressState) => ProgressState) => void
   onExit: () => void
+  /** Targeted practice (§C2): drill one concept instead of the scheduler's mix. */
+  focus?: ConceptId
+  /** Display name for the focused concept. */
+  focusTitle?: string
 }) {
   const rng = useRef(makeRng(`session-${Date.now()}-${Math.random()}`))
   const before = useRef<Partial<Record<ConceptId, number>>>({})
   const [queue, setQueue] = useState<QueueEntry[]>(() => {
-    const plan = buildSession(progress, new Date())
+    // Both paths go through the same builders and the same grading, so mastery
+    // is one shared number per concept however you got here (§C2).
+    const plan = focus
+      ? buildFocusedSession(progress, new Date(), focus)
+      : buildSession(progress, new Date())
     return plan.entries.map(({ concept }) => {
       before.current[concept] ??= masteryOf(progress, concept)
       return {
@@ -46,6 +56,9 @@ export function SessionScreen({ progress, update, onExit }: {
   const [idx, setIdx] = useState(0)
   const [right, setRight] = useState(0)
   const xpStart = useRef(progress.xp)
+  // Shown once, before the first item — never between items.
+  const notice = useRef(timedNotice(queue.map((e) => e.item.timeLimitMs)))
+  const [noticeDismissed, setNoticeDismissed] = useState(false)
 
   const entry = queue[idx]
   const done = idx >= queue.length
@@ -150,9 +163,10 @@ export function SessionScreen({ progress, update, onExit }: {
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-4 p-4">
       <div className="flex items-center justify-between text-xs text-parchment-dim">
-        <button className="cursor-pointer hover:text-parchment" onClick={onExit}>
+        <button className="min-h-11 cursor-pointer hover:text-parchment" onClick={onExit}>
           ← end session
         </button>
+        {focusTitle && <span className="font-serif text-sm text-parchment">Practising: {focusTitle}</span>}
         <span className="tabular">
           {idx + 1} / {queue.length}
         </span>
@@ -163,12 +177,28 @@ export function SessionScreen({ progress, update, onExit }: {
           style={{ width: `${(idx / queue.length) * 100}%` }}
         />
       </div>
-      <ItemRunner
-        key={idx}
-        item={entry.item}
-        askConfidence={CONFIDENCE_CONCEPTS.has(entry.concept)}
-        onDone={handleResult}
-      />
+      {notice.current && !noticeDismissed ? (
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-paper-line bg-paper-raised p-6 text-center">
+          <p className="font-serif text-lg text-parchment">⏱ Heads up</p>
+          <p className="text-sm text-parchment-dim">{notice.current}</p>
+          <p className="text-xs text-parchment-dim">
+            Fast, correct answers earn the most mastery — each timed question counts you in first.
+          </p>
+          <button
+            className="min-h-11 cursor-pointer rounded-lg bg-accent px-4 py-2 font-semibold text-on-accent transition-colors duration-(--duration-ui) hover:brightness-110"
+            onClick={() => setNoticeDismissed(true)}
+          >
+            Start
+          </button>
+        </div>
+      ) : (
+        <ItemRunner
+          key={idx}
+          item={entry.item}
+          askConfidence={CONFIDENCE_CONCEPTS.has(entry.concept)}
+          onDone={handleResult}
+        />
+      )}
     </div>
   )
 }

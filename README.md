@@ -192,8 +192,21 @@ the drills grade with the same model the bots play by.
 
 Eight units in order (tiles → sets → winning shape → special hands → faan &
 the minimum → reading discards → defence → guided play), each unlocking the
-next. Progress lives in React state only — refreshing resets it (by design; the
-app runs where browser storage is unavailable).
+next. Progress lives in one versioned `localStorage` key with export/import
+(`src/lessons/persistence.ts`), and degrades to memory where storage is
+unavailable.
+
+Two ways in, **one mastery score per concept**: "Start a session" runs the
+scheduler's mix (due reviews, weakest concepts, a little new material), and the
+concept map underneath it is tappable for **targeted practice** — drill defence
+directly instead of waiting for the chain to reach it. Both read and write the
+same state through the same `gradeAnswer`, so practising defence is what the
+scheduler sees next time. A concept whose prerequisites aren't mastered can
+still be practised; it's marked as being ahead of the chain, and practising it
+doesn't fake an unlock (unlocking is a statement about its *prerequisites*).
+
+Timed items warn **once** per session ("the next N questions are timed"), then
+carry a small ⏱ badge and a two-second count-in — no modal between questions.
 
 - **Tile efficiency trainer** — procedurally generated hands at a target
   shanten; your discard is graded optimal / acceptable / bad with a full

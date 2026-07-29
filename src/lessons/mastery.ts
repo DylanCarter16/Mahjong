@@ -190,3 +190,31 @@ export function buildSession(s: ProgressState, now: Date, size = 13): SessionPla
   }
   return { entries }
 }
+
+/**
+ * Targeted practice on ONE concept (§C2) — "I want to drill defence now"
+ * instead of waiting for the chain to reach it.
+ *
+ * This is a second way IN, not a second progress system: every answer still
+ * goes through `gradeAnswer` into the same `ProgressState`, so practising
+ * defence raises `defence.*` mastery everywhere, and `buildSession` — which
+ * ranks by that same mastery and by `due` — stops feeding you beginner defence
+ * items on its own. Nothing here writes state; the caller grades exactly as the
+ * main chain does.
+ *
+ * Prerequisites are deliberately NOT enforced: you may practise anything, and
+ * the UI labels a concept whose prereqs aren't mastered as being ahead of the
+ * chain. Blocking it would defeat the point of the entry point, and it stays
+ * honest — practising a locked concept raises that concept's mastery but does
+ * not unlock it, since unlocking is a statement about its PREREQS' mastery.
+ */
+export function buildFocusedSession(
+  s: ProgressState,
+  now: Date,
+  concept: ConceptId,
+  size = 10,
+): SessionPlan {
+  void now // same signature shape as buildSession; scheduling is the caller's
+  const isNew = !s.concepts[concept]
+  return { entries: Array.from({ length: size }, () => ({ concept, isNew })) }
+}
