@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { LessonScreen } from './lessons/LessonScreen'
 import { GalleryScreen } from './ui/GalleryScreen'
 import { PlayHub } from './ui/PlayHub'
+import { REDUCE_MOTION_ATTR } from './ui/motion'
 import { TileDefs } from './ui/tiles/TileFace'
+import { TileView } from './ui/TileView'
 import { defaultSettings, type Settings } from './ui/useGame'
 
 type Tab = 'play' | 'learn'
@@ -23,6 +25,12 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
+  // Personal display preference, published on the root element so both CSS
+  // (theme.css) and the components that branch in JS read one source.
+  useEffect(() => {
+    document.documentElement.setAttribute(REDUCE_MOTION_ATTR, settings.reducedMotion ? 'on' : 'off')
+  }, [settings.reducedMotion])
+
   // Static design-gate page: /#/gallery
   if (hash === '#/gallery') return <GalleryScreen />
 
@@ -36,8 +44,11 @@ export default function App() {
     >
       <TileDefs />
       <nav className="flex items-center gap-3 px-4 pt-4">
-        <h1 className="mr-2 text-lg font-bold tracking-tight">
-          🀄 Mahjong <span className="font-normal text-emerald-300/70">play + learn</span>
+        <h1 className="mr-2 flex items-center gap-1.5 text-lg font-bold tracking-tight">
+          {/* Even the wordmark's tile is the real component (§D1): 🀄 as a text
+              character is the red-dragon-renders-as-an-emoji bug in miniature. */}
+          <TileView tile="dR" size="xs" />
+          Mahjong <span className="font-normal text-emerald-300/70">play + learn</span>
         </h1>
         <button className={tabCls(tab === 'play')} onClick={() => setTab('play')}>
           Play

@@ -10,14 +10,7 @@
 // numeric seconds count, plus an aria-live readout for screen readers.
 
 import { useEffect, useRef, useState } from 'react'
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  )
-}
+import { prefersReducedMotion } from './motion'
 
 export function ClaimCountdown({
   durationMs,

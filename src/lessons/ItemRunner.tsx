@@ -1,5 +1,12 @@
 // Runs one generated item: ONE answer per presentation (§4.1.2), optional
 // countdown, optional confidence rating, then the full explanation.
+//
+// Timed items (§C1): the clock never starts while you are still reading, but
+// the "you'll have 12 seconds — I'm ready" FULL-SCREEN GATE is gone. In a run
+// of timed questions that was a modal to dismiss between every single one. The
+// session warns once up front (SessionScreen), each timed item carries a small
+// ⏱ badge, and the clock is preceded by a short auto-advancing count-in. You
+// may answer during the count-in — it just means you were quick.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { sortTiles } from '../engine/tiles'
@@ -10,6 +17,7 @@ import { TileView } from '../ui/TileView'
 import { conceptProse } from './explain'
 import type { LessonItem } from './generators'
 import type { Confidence } from './mastery'
+import { COUNT_IN_MS } from './timing'
 
 export interface ItemResult {
   correct: boolean
@@ -31,16 +39,39 @@ export function ItemRunner({ item, askConfidence = false, onDone }: {
   const [pendingCorrect, setPendingCorrect] = useState<boolean | null>(null)
   const [revealed, setRevealed] = useState<ItemResult | null>(null)
   const [timeLeft, setTimeLeft] = useState<number | null>(item.timeLimitMs ? item.timeLimitMs / 1000 : null)
-  // Timed items never ambush: they wait behind a "ready?" tap.
+  // Timed items never ambush: the clock waits out a short count-in first.
   const [armed, setArmed] = useState(!item.timeLimitMs)
+  const [countIn, setCountIn] = useState(item.timeLimitMs ? Math.ceil(COUNT_IN_MS / 1000) : 0)
 
   const finish = (correct: boolean, confidence?: Confidence) =>
-    setRevealed({ correct, ms: Date.now() - start.current, ...(confidence ? { confidence } : {}) })
+    setRevealed({
+      correct,
+      // Answering during the count-in is allowed; it reads as instant, not negative.
+      ms: Math.max(0, Date.now() - start.current),
+      ...(confidence ? { confidence } : {}),
+    })
 
   const settle = (correct: boolean) => {
     if (askConfidence) setPendingCorrect(correct)
     else finish(correct)
   }
+
+  // Count-in: the question is already on screen, so this is orientation time,
+  // not an interruption — it advances itself, there is nothing to dismiss.
+  useEffect(() => {
+    if (!item.timeLimitMs || armed) return
+    const startedAt = Date.now()
+    const t = setInterval(() => {
+      const left = COUNT_IN_MS - (Date.now() - startedAt)
+      if (left <= 0) {
+        clearInterval(t)
+        start.current = Date.now()
+        setCountIn(0)
+        setArmed(true)
+      } else setCountIn(Math.ceil(left / 1000))
+    }, 100)
+    return () => clearInterval(t)
+  }, [item, armed])
 
   // Countdown for timed items — expiry counts as wrong.
   useEffect(() => {
@@ -60,28 +91,6 @@ export function ItemRunner({ item, askConfidence = false, onDone }: {
   const ex = item.exercise
 
   const groupedIdx = useMemo(() => new Set(groups.flat()), [groups])
-
-  // All hooks are above this line — the ready-gate return must not skip any.
-  if (!armed) {
-    return (
-      <div className="flex w-full flex-col items-center gap-4 py-8">
-        <p className="text-xs uppercase tracking-wide text-parchment-dim">{item.concept}</p>
-        <p className="font-serif text-lg text-parchment">Timed question</p>
-        <p className="text-sm text-parchment-dim">
-          You'll have {(item.timeLimitMs! / 1000).toFixed(0)} seconds. Fast, correct answers earn the most mastery.
-        </p>
-        <button
-          className={`${btn} bg-accent text-on-accent`}
-          onClick={() => {
-            start.current = Date.now()
-            setArmed(true)
-          }}
-        >
-          I'm ready
-        </button>
-      </div>
-    )
-  }
 
   const answerChoice = (i: number) => {
     if (revealed || pendingCorrect !== null || ex.kind !== 'choice') return
@@ -139,13 +148,27 @@ export function ItemRunner({ item, askConfidence = false, onDone }: {
 
   return (
     <div className="flex w-full flex-col items-center gap-4">
-      <div className="flex w-full items-center justify-between text-xs text-parchment-dim">
-        <span>{item.concept}</span>
-        {timeLeft !== null && (
-          <span className={`tabular font-serif text-sm ${timeLeft < 1.2 ? 'text-danger' : ''}`}>
-            {Math.max(0, timeLeft).toFixed(1)}s
-          </span>
-        )}
+      <div className="flex w-full items-center justify-between gap-2 text-xs text-parchment-dim">
+        <span className="min-w-0 truncate">{item.concept}</span>
+        <span className="flex shrink-0 items-center gap-2">
+          {/* The persistent marker: on a timed item, always visible, never a
+              thing to dismiss. */}
+          {item.timeLimitMs && (
+            <span className="rounded-full border border-consider/50 bg-consider/10 px-2 py-0.5 text-[0.65rem] font-medium text-consider">
+              ⏱ timed
+            </span>
+          )}
+          {!armed && countIn > 0 && (
+            <span className="tabular font-serif text-sm text-consider" role="status" aria-live="polite">
+              in {countIn}s
+            </span>
+          )}
+          {armed && timeLeft !== null && (
+            <span className={`tabular font-serif text-sm ${timeLeft < 1.2 ? 'text-danger' : ''}`}>
+              {Math.max(0, timeLeft).toFixed(1)}s
+            </span>
+          )}
+        </span>
       </div>
 
       {item.board && (

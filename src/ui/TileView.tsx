@@ -61,18 +61,25 @@ export function TileView({ tile, numbered = false, size = 'md', onClick, state, 
     )
   }
 
+  // The accessible name always STARTS with the tile, then any extra context
+  // (the beginner-aid evaluation). Before, a `title` replaced the name outright,
+  // so with aids on a hand tile announced "discarding leaves 2 shanten" without
+  // ever saying which tile it was.
+  const name = tileName(tile)
+  const label = title ? `${name} — ${title}` : name
+
   return onClick ? (
     <button
       type="button"
       onClick={onClick}
-      title={title ?? tileName(tile)}
-      aria-label={title ?? tileName(tile)}
+      title={title ?? name}
+      aria-label={label}
       className={`${cls} cursor-pointer hover:-translate-y-1.5 hover:shadow-tile-lifted focus-visible:outline-2 focus-visible:outline-accent`}
     >
       <TileFace tile={tile} showRank={numbered} />
     </button>
   ) : (
-    <div title={title ?? tileName(tile)} className={cls}>
+    <div title={title ?? name} aria-label={label} role="img" className={cls}>
       <TileFace tile={tile} showRank={numbered} />
     </div>
   )

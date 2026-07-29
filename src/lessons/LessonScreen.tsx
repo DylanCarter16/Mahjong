@@ -4,14 +4,14 @@
 
 import { useRef, useState } from 'react'
 import { DownloadIcon, FlameIcon, LockIcon, UploadIcon } from '../ui/icons'
-import { CONCEPTS } from './concepts'
+import { CONCEPTS, conceptById, type ConceptId } from './concepts'
 import { DAILY_GOAL, isUnlocked, masteryOf } from './mastery'
 import { QuizScreen } from './QuizScreen'
 import { SessionScreen } from './SessionScreen'
 import { TrainerScreen } from './TrainerScreen'
 import { useProgress } from './useProgress'
 
-type Screen = 'home' | 'session' | 'trainer' | 'quiz'
+type Screen = 'home' | 'session' | 'trainer' | 'quiz' | 'practice'
 
 const UNIT_TITLES: Record<number, string> = {
   1: 'Tiles & suits',
@@ -27,11 +27,27 @@ const UNIT_TITLES: Record<number, string> = {
 export function LessonScreen() {
   const { progress, update, exportProgress, importProgress } = useProgress()
   const [screen, setScreen] = useState<Screen>('home')
+  const [focus, setFocus] = useState<ConceptId | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   if (screen === 'session') return <SessionScreen progress={progress} update={update} onExit={() => setScreen('home')} />
+  if (screen === 'practice' && focus)
+    return (
+      <SessionScreen
+        progress={progress}
+        update={update}
+        onExit={() => setScreen('home')}
+        focus={focus}
+        focusTitle={conceptById.get(focus)?.title ?? focus}
+      />
+    )
   if (screen === 'trainer') return <TrainerScreen progress={progress} update={update} onExit={() => setScreen('home')} />
   if (screen === 'quiz') return <QuizScreen progress={progress} update={update} onExit={() => setScreen('home')} />
+
+  const practise = (id: ConceptId) => {
+    setFocus(id)
+    setScreen('practice')
+  }
 
   const units = [...new Set(CONCEPTS.map((c) => c.unit))].sort((a, b) => a - b)
 
@@ -82,7 +98,14 @@ export function LessonScreen() {
         </button>
       </div>
 
-      <h2 className="mt-2 text-xs font-semibold uppercase tracking-wide text-parchment-dim">The terrain</h2>
+      {/* The terrain doubles as the practice-by-concept entry point (§C2): the
+          chain above is untouched, this is a second way in for "I want to drill
+          defence NOW". Both write the same mastery, so grinding here is what
+          the scheduler reads next time. A concept whose prerequisites aren't
+          mastered yet is practisable but labelled — see buildFocusedSession. */}
+      <h2 className="mt-2 text-xs font-semibold uppercase tracking-wide text-parchment-dim">
+        The terrain — tap a skill to practise it
+      </h2>
       <ol className="flex flex-col gap-3">
         {units.map((u) => (
           <li key={u} className="rounded-2xl border border-paper-line bg-paper-raised p-3">
@@ -94,7 +117,14 @@ export function LessonScreen() {
                 const unlocked = isUnlocked(progress, c.id)
                 const m = masteryOf(progress, c.id)
                 return (
-                  <div key={c.id} className={`flex items-center gap-2 text-sm ${unlocked ? '' : 'opacity-45'}`}>
+                  <button
+                    key={c.id}
+                    onClick={() => practise(c.id)}
+                    aria-label={`Practise ${c.title}${unlocked ? '' : ' (ahead of the chain)'} — mastery ${Math.round(m * 100)}%`}
+                    className={`flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-lg px-1 text-left text-sm transition-colors duration-(--duration-ui) hover:bg-paper ${
+                      unlocked ? '' : 'opacity-60'
+                    }`}
+                  >
                     <span className="w-44 truncate text-parchment">{c.title}</span>
                     <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-paper">
                       <div
@@ -102,16 +132,22 @@ export function LessonScreen() {
                         style={{ width: `${Math.max(2, m * 100)}%` }}
                       />
                     </div>
-                    <span className="tabular flex w-10 items-center justify-end text-right text-xs text-parchment-dim">
-                      {unlocked ? `${Math.round(m * 100)}%` : <LockIcon className="h-3.5 w-3.5" />}
+                    <span className="tabular flex w-14 items-center justify-end gap-1 text-right text-xs text-parchment-dim">
+                      {!unlocked && <LockIcon className="h-3.5 w-3.5" />}
+                      {Math.round(m * 100)}%
                     </span>
-                  </div>
+                  </button>
                 )
               })}
             </div>
           </li>
         ))}
       </ol>
+      <p className="-mt-3 text-xs text-parchment-dim">
+        Practice and the main chain share one mastery score per skill — drill defence here and the
+        chain stops giving you beginner defence questions. A 🔒 skill can still be practised; it's
+        just ahead of where the chain would take you.
+      </p>
 
       <div className="flex items-center gap-3 text-xs text-parchment-dim">
         <button className="flex cursor-pointer items-center gap-1 hover:text-parchment" onClick={exportProgress}>

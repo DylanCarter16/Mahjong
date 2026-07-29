@@ -3,7 +3,7 @@
 // engine's analysis over it and hands the model FACTS plus a short ask.
 // No client-supplied prompt text ever reaches the model.
 
-import { rankDiscards, readOpponents } from '../../src/engine/analysis'
+import { claimAnalysis, rankDiscards, readOpponents, type ClaimEval } from '../../src/engine/analysis'
 import type { PlayerView } from '../../src/engine/game'
 import { shanten } from '../../src/engine/shanten'
 import { tileName } from '../../src/engine/tiles'
@@ -70,10 +70,64 @@ export function coachFacts(view: PlayerView): string {
   return lines.join('\n')
 }
 
+function claimWords(claim: ClaimEval['claim']): string {
+  if (claim === 'win') return 'win off the discard'
+  if (claim === 'pung') return 'pung (three of a kind)'
+  if (claim === 'kong') return 'kong (four of a kind)'
+  return `chow using ${claim.chow.map(tileName).join(' + ')}`
+}
+
+/**
+ * The claims-phase facts block. Same contract as coachFacts: the engine has
+ * already worked out what each claim does to the hand; the model only weighs
+ * it up in words. Exported for tests.
+ */
+export function claimFacts(view: PlayerView, options: ClaimEval[]): string {
+  const pd = view.pendingDiscard!
+  const myMelds = view.melds[view.seat]
+  const concealed = myMelds.every((m) => m.concealed)
+  const reads = readOpponents(view)
+  const topThreat = reads.reduce((a, b) => (b.threat > a.threat ? b : a))
+  return [
+    `notation: m=characters, p=circles, s=bamboo, w=winds, d=dragons`,
+    `My hand: ${view.concealed.join(' ')}${myMelds.length ? ` | my melds: ${myMelds.map((m) => m.tiles.join('')).join(' ')}` : ''}`,
+    `${SEAT_LABELS[pd.from]} just discarded ${tileName(pd.tile)} and I may claim it.`,
+    `Current shanten: ${options[0].shantenBefore} (0 = one tile from winning)`,
+    `Claim options, computed by the engine (DO NOT recompute):`,
+    ...options.map(
+      (o) =>
+        `  ${claimWords(o.claim)} -> shanten ${o.shantenAfter === -1 ? '-1 (an immediate win)' : o.shantenAfter}` +
+        `${o.shantenAfter < o.shantenBefore ? ' (closer to ready)' : o.shantenAfter === o.shantenBefore ? ' (no progress)' : ' (further from ready)'}`,
+    ),
+    `Cost of claiming: the set is exposed for everyone to see.${
+      concealed ? ' My hand is fully concealed right now, so claiming gives that up.' : ' I already have an exposed set.'
+    }`,
+    `Round wind: ${view.roundWind}. My seat wind: ${view.seatWind}. Faan minimum: ${view.faanMinimum}. Wall tiles left: ${view.wallCount}.`,
+    `Most threatening opponent: ${SEAT_LABELS[topThreat.seat]}, threat ${topThreat.threat}/3, ${topThreat.exposedMelds} exposed melds.`,
+  ].join('\n')
+}
+
 export function buildCoachPrompt(body: unknown): { system: string; prompt: string } | null {
   if (typeof body !== 'object' || body === null) return null
   const view = validatePlayerView((body as Record<string, unknown>).view)
   if (!view) return null
+
+  // A claims-phase position is a different question ("take it or not?"), so it
+  // gets its own facts and its own ask. The MODE is derived from the validated
+  // state, never from a client-supplied field — same no-open-proxy rule as the
+  // rest of this file.
+  if (view.phase === 'claims' && view.pendingDiscard) {
+    const options = claimAnalysis(view)
+    if (options.length > 0) {
+      return {
+        system: COACH_SYSTEM,
+        prompt: `${claimFacts(view, options)}
+
+In 60 words or fewer: say whether to claim and which claim to take (or to pass), using the engine's shanten numbers, and name the one thing it costs me. No preamble, no recomputation.`,
+      }
+    }
+  }
+
   const pending = view.pendingDiscard
     ? `\nNote: ${SEAT_LABELS[view.pendingDiscard.from]} just discarded ${tileName(view.pendingDiscard.tile)} and it is claimable.`
     : ''

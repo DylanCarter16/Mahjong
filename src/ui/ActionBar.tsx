@@ -2,12 +2,23 @@ import type { Action, PlayerView } from '../engine/game'
 import { winDeclarable } from '../engine/fan'
 import { scoreBest } from '../engine/fan'
 import { decompose, isWinningHand } from '../engine/win'
-import { glyph, tileName } from '../engine/tiles'
+import { tileName } from '../engine/tiles'
+import type { TileId } from '../engine/types'
 import { ClaimCountdown } from './ClaimCountdown'
 import { SEAT_NAMES } from './panels'
+import { TileView } from './TileView'
 
 const btn =
   'px-4 py-2 rounded-lg font-semibold shadow transition-colors disabled:opacity-40 cursor-pointer min-h-11'
+
+/** A tile inside a button label — the real tile component, never a glyph char. */
+function TileChip({ tile }: { tile: TileId }) {
+  return (
+    <span aria-hidden className="inline-flex">
+      <TileView tile={tile} size="xs" />
+    </span>
+  )
+}
 
 export function ActionBar({ view, onAction, claimCountdown, seatLabel }: {
   view: PlayerView
@@ -65,6 +76,9 @@ export function ActionBar({ view, onAction, claimCountdown, seatLabel }: {
       )}
       {claims.map((a, i) => {
         if (a.type !== 'claim') return null
+        // Tiles on a button are drawn with the real tile component like
+        // everywhere else; the names ride along for the accessible label.
+        const chow = typeof a.claim === 'object' ? a.claim.chow : null
         const label =
           a.claim === 'win'
             ? 'Win! 食糊'
@@ -72,14 +86,20 @@ export function ActionBar({ view, onAction, claimCountdown, seatLabel }: {
               ? 'Pung 碰'
               : a.claim === 'kong'
                 ? 'Kong 槓'
-                : `Chow 上 ${a.claim.chow.map(glyph).join('')}`
+                : 'Chow 上'
         const cls =
           a.claim === 'win'
             ? 'bg-amber-400 text-amber-950 hover:bg-amber-300'
             : 'bg-emerald-200 text-emerald-950 hover:bg-emerald-100'
         return (
-          <button key={i} className={`${btn} ${cls}`} onClick={() => onAction(a)}>
+          <button
+            key={i}
+            className={`${btn} ${cls} flex items-center gap-1.5`}
+            onClick={() => onAction(a)}
+            aria-label={chow ? `Chow with ${chow.map(tileName).join(' and ')}` : label}
+          >
             {label}
+            {chow?.map((t) => <TileChip key={t} tile={t} />)}
           </button>
         )
       })}
@@ -87,10 +107,11 @@ export function ActionBar({ view, onAction, claimCountdown, seatLabel }: {
         a.type === 'kong' ? (
           <button
             key={`k${i}`}
-            className={`${btn} bg-emerald-200 text-emerald-950 hover:bg-emerald-100`}
+            className={`${btn} flex items-center gap-1.5 bg-emerald-200 text-emerald-950 hover:bg-emerald-100`}
             onClick={() => onAction(a)}
+            aria-label={`Kong of ${tileName(a.tile)}`}
           >
-            Kong 槓 {glyph(a.tile)}
+            Kong 槓 <TileChip tile={a.tile} />
           </button>
         ) : null,
       )}

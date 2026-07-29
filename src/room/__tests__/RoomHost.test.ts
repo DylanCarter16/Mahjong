@@ -81,6 +81,42 @@ describe('house rule sanitisation', () => {
     expect(r.coachAllowed).toBe(true)
     expect(sanitizeHouseRules(null)).toEqual(DEFAULT_HOUSE_RULES)
   })
+
+  it('carries the beginner-aid rule independently of the coach rule (§B2)', () => {
+    // The two gate different things — an engine-computed table and a model
+    // call — so every combination has to survive the wire.
+    const noAids = sanitizeHouseRules({ ...DEFAULT_HOUSE_RULES, beginnerAidsAllowed: false })
+    expect(noAids.beginnerAidsAllowed).toBe(false)
+    expect(noAids.coachAllowed).toBe(true)
+    const noCoach = sanitizeHouseRules({ ...DEFAULT_HOUSE_RULES, coachAllowed: false })
+    expect(noCoach.beginnerAidsAllowed).toBe(true)
+    expect(noCoach.coachAllowed).toBe(false)
+    // Junk falls back to allowed, matching every other rule here.
+    expect(sanitizeHouseRules({ beginnerAidsAllowed: 'no' }).beginnerAidsAllowed).toBe(true)
+  })
+})
+
+describe('display preference vs house rule (§B1/§B2)', () => {
+  // The precedence rule the UI implements, pinned as a plain function so it
+  // cannot drift: the host's rule wins, and a personal toggle can only ever
+  // subtract. Nothing here touches game state — that is the whole point.
+  const effectiveAids = (personal: boolean, allowedByHost: boolean) => personal && allowedByHost
+
+  it('host lock beats the personal toggle; personal off is still off', () => {
+    expect(effectiveAids(true, true)).toBe(true)
+    expect(effectiveAids(true, false)).toBe(false) // host wins
+    expect(effectiveAids(false, true)).toBe(false) // personal opt-out
+    expect(effectiveAids(false, false)).toBe(false)
+  })
+
+  it('the display preferences are not part of the room protocol at all', () => {
+    // If a personal preference ever leaks into HouseRules it becomes a game
+    // setting someone else can change — this asserts the boundary.
+    const keys = Object.keys(DEFAULT_HOUSE_RULES)
+    for (const personal of ['numberedTiles', 'beginnerAids', 'reducedMotion', 'byoKey']) {
+      expect(keys).not.toContain(personal)
+    }
+  })
 })
 
 describe('RoomHost lobby', () => {

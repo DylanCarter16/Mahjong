@@ -28,6 +28,9 @@ function t(id) {
   if (!VALID.has(id)) throw new Error(`Unknown tile id: ${id}`);
   return id;
 }
+function sortTiles(tiles) {
+  return [...tiles].sort((a, b) => ORDER.get(a) - ORDER.get(b));
+}
 var isSuit = (id) => id[0] === "m" || id[0] === "p" || id[0] === "s";
 var isHonour = (id) => id[0] === "w" || id[0] === "d";
 var suitOf = (id) => isSuit(id) ? id[0] : null;
@@ -48,6 +51,7 @@ function tileName(id) {
 
 // src/engine/types.ts
 var SEATS = [0, 1, 2, 3];
+var nextSeat = (s) => (s + 1) % 4;
 
 // src/engine/shanten.ts
 var suitCache = /* @__PURE__ */ new Map();
@@ -238,6 +242,125 @@ function dangerScore(view, tile, opp) {
   return 5 + (r >= 4 && r <= 6 ? 1 : 0);
 }
 
+// src/engine/win.ts
+var ORPHAN_KINDS = [
+  "m1",
+  "m9",
+  "p1",
+  "p9",
+  "s1",
+  "s9",
+  "wE",
+  "wS",
+  "wW",
+  "wN",
+  "dR",
+  "dG",
+  "dW"
+];
+function histogram(tiles) {
+  const h = /* @__PURE__ */ new Map();
+  for (const t2 of tiles) h.set(t2, (h.get(t2) ?? 0) + 1);
+  return h;
+}
+function meldToDecompSet(m) {
+  return { type: m.type, tiles: [...m.tiles], concealed: m.concealed, fromMeld: true };
+}
+var nextInSuit = (id, step) => {
+  if (!isSuit(id)) return null;
+  const r = rankOf(id) + step;
+  return r >= 1 && r <= 9 ? `${id[0]}${r}` : null;
+};
+function extractMelds(hist, acc, out) {
+  let lowest = null;
+  for (const kind of ALL_PLAY_KINDS) {
+    if ((hist.get(kind) ?? 0) > 0) {
+      lowest = kind;
+      break;
+    }
+  }
+  if (lowest === null) {
+    out.push(acc.map((s) => ({ ...s, tiles: [...s.tiles] })));
+    return;
+  }
+  const count = hist.get(lowest);
+  if (count >= 3) {
+    hist.set(lowest, count - 3);
+    acc.push({ type: "pung", tiles: [lowest, lowest, lowest], concealed: true, fromMeld: false });
+    extractMelds(hist, acc, out);
+    acc.pop();
+    hist.set(lowest, count);
+  }
+  const t2 = nextInSuit(lowest, 1);
+  const t3 = nextInSuit(lowest, 2);
+  if (t2 && t3 && (hist.get(t2) ?? 0) > 0 && (hist.get(t3) ?? 0) > 0) {
+    hist.set(lowest, count - 1);
+    hist.set(t2, hist.get(t2) - 1);
+    hist.set(t3, hist.get(t3) - 1);
+    acc.push({ type: "chow", tiles: [lowest, t2, t3], concealed: true, fromMeld: false });
+    extractMelds(hist, acc, out);
+    acc.pop();
+    hist.set(lowest, count);
+    hist.set(t2, hist.get(t2) + 1);
+    hist.set(t3, hist.get(t3) + 1);
+  }
+}
+function standardDecompositions(concealed, melds) {
+  if (concealed.length !== 3 * (4 - melds.length) + 2) return [];
+  const results = [];
+  const seen = /* @__PURE__ */ new Set();
+  const hist = histogram(concealed);
+  for (const kind of [...hist.keys()].sort()) {
+    if (hist.get(kind) < 2) continue;
+    hist.set(kind, hist.get(kind) - 2);
+    const partitions = [];
+    extractMelds(hist, [], partitions);
+    hist.set(kind, hist.get(kind) + 2);
+    for (const sets of partitions) {
+      const all = [...melds.map(meldToDecompSet), ...sets];
+      const key = JSON.stringify([kind, all.map((s) => s.tiles.join("")).sort()]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      results.push({ shape: "standard", sets: all, pair: [kind, kind] });
+    }
+  }
+  return results;
+}
+function sevenPairsDecomposition(concealed, melds) {
+  if (melds.length > 0 || concealed.length !== 14) return null;
+  const hist = histogram(concealed);
+  if (hist.size !== 7) return null;
+  for (const c of hist.values()) if (c !== 2) return null;
+  const pairs = sortTiles([...hist.keys()]).map((k) => [k, k]);
+  return { shape: "sevenPairs", pairs };
+}
+function thirteenOrphansDecomposition(concealed, melds) {
+  if (melds.length > 0 || concealed.length !== 14) return null;
+  const hist = histogram(concealed);
+  let duplicated = null;
+  for (const kind of ORPHAN_KINDS) {
+    const c = hist.get(kind) ?? 0;
+    if (c === 0 || c > 2) return null;
+    if (c === 2) {
+      if (duplicated) return null;
+      duplicated = kind;
+    }
+  }
+  if (!duplicated || hist.size !== 13) return null;
+  return { shape: "thirteenOrphans", duplicated };
+}
+function decompose(concealed, melds) {
+  const out = standardDecompositions(concealed, melds);
+  const sp = sevenPairsDecomposition(concealed, melds);
+  if (sp) out.push(sp);
+  const to = thirteenOrphansDecomposition(concealed, melds);
+  if (to) out.push(to);
+  return out;
+}
+function isWinningHand(concealed, melds) {
+  return decompose(concealed, melds).length > 0;
+}
+
 // src/engine/analysis.ts
 function visibleCopies2(view, restHand, kind, discarded) {
   let n = restHand.filter((t2) => t2 === kind).length + (kind === discarded ? 1 : 0);
@@ -266,6 +389,58 @@ function rankDiscards(view) {
     out.push({ tile, shantenAfter: shanten(rest, melds), ukeire, advancing, dangerByOpponent });
   }
   out.sort((a, b) => a.shantenAfter - b.shantenAfter || b.ukeire - a.ukeire);
+  return out;
+}
+function claimAnalysis(view) {
+  const pd = view.pendingDiscard;
+  if (!pd || pd.from === view.seat) return [];
+  const tile = pd.tile;
+  const hand = view.concealed;
+  const melds = view.melds[view.seat];
+  const before = shanten(hand, melds);
+  const copies = hand.filter((t2) => t2 === tile).length;
+  const out = [];
+  const withMeld = (removed, meld2) => {
+    const rest = [...hand];
+    for (const r of removed) rest.splice(rest.indexOf(r), 1);
+    return shanten(rest, [...melds, meld2]);
+  };
+  if (isWinningHand([...hand, tile], melds)) {
+    out.push({ claim: "win", shantenBefore: before, shantenAfter: -1, recommended: true });
+  }
+  if (copies >= 2) {
+    const after = withMeld([tile, tile], { type: "pung", tiles: [tile, tile, tile], concealed: false });
+    out.push({ claim: "pung", shantenBefore: before, shantenAfter: after, recommended: after < before });
+  }
+  if (copies >= 3) {
+    const after = withMeld([tile, tile, tile], {
+      type: "kong",
+      tiles: [tile, tile, tile, tile],
+      concealed: false,
+      kongStyle: "exposed"
+    });
+    out.push({ claim: "kong", shantenBefore: before, shantenAfter: after, recommended: after < before });
+  }
+  if (view.seat === nextSeat(pd.from) && isSuit(tile)) {
+    const r = rankOf(tile);
+    const suit = tile[0];
+    const has = (n) => n >= 1 && n <= 9 && hand.includes(`${suit}${n}`);
+    for (const [a, b] of [
+      [r - 2, r - 1],
+      [r - 1, r + 1],
+      [r + 1, r + 2]
+    ]) {
+      if (!has(a) || !has(b)) continue;
+      const pieces = [`${suit}${a}`, `${suit}${b}`];
+      const after = withMeld(pieces, {
+        type: "chow",
+        tiles: sortTiles([...pieces, tile]),
+        concealed: false
+      });
+      out.push({ claim: { chow: pieces }, shantenBefore: before, shantenAfter: after, recommended: after < before });
+    }
+  }
+  out.sort((a, b) => a.shantenAfter - b.shantenAfter);
   return out;
 }
 var SUITS2 = ["m", "p", "s"];
@@ -420,10 +595,47 @@ function coachFacts(view) {
   }
   return lines.join("\n");
 }
+function claimWords(claim) {
+  if (claim === "win") return "win off the discard";
+  if (claim === "pung") return "pung (three of a kind)";
+  if (claim === "kong") return "kong (four of a kind)";
+  return `chow using ${claim.chow.map(tileName).join(" + ")}`;
+}
+function claimFacts(view, options) {
+  const pd = view.pendingDiscard;
+  const myMelds = view.melds[view.seat];
+  const concealed = myMelds.every((m) => m.concealed);
+  const reads = readOpponents(view);
+  const topThreat = reads.reduce((a, b) => b.threat > a.threat ? b : a);
+  return [
+    `notation: m=characters, p=circles, s=bamboo, w=winds, d=dragons`,
+    `My hand: ${view.concealed.join(" ")}${myMelds.length ? ` | my melds: ${myMelds.map((m) => m.tiles.join("")).join(" ")}` : ""}`,
+    `${SEAT_LABELS[pd.from]} just discarded ${tileName(pd.tile)} and I may claim it.`,
+    `Current shanten: ${options[0].shantenBefore} (0 = one tile from winning)`,
+    `Claim options, computed by the engine (DO NOT recompute):`,
+    ...options.map(
+      (o) => `  ${claimWords(o.claim)} -> shanten ${o.shantenAfter === -1 ? "-1 (an immediate win)" : o.shantenAfter}${o.shantenAfter < o.shantenBefore ? " (closer to ready)" : o.shantenAfter === o.shantenBefore ? " (no progress)" : " (further from ready)"}`
+    ),
+    `Cost of claiming: the set is exposed for everyone to see.${concealed ? " My hand is fully concealed right now, so claiming gives that up." : " I already have an exposed set."}`,
+    `Round wind: ${view.roundWind}. My seat wind: ${view.seatWind}. Faan minimum: ${view.faanMinimum}. Wall tiles left: ${view.wallCount}.`,
+    `Most threatening opponent: ${SEAT_LABELS[topThreat.seat]}, threat ${topThreat.threat}/3, ${topThreat.exposedMelds} exposed melds.`
+  ].join("\n");
+}
 function buildCoachPrompt(body) {
   if (typeof body !== "object" || body === null) return null;
   const view = validatePlayerView(body.view);
   if (!view) return null;
+  if (view.phase === "claims" && view.pendingDiscard) {
+    const options = claimAnalysis(view);
+    if (options.length > 0) {
+      return {
+        system: COACH_SYSTEM,
+        prompt: `${claimFacts(view, options)}
+
+In 60 words or fewer: say whether to claim and which claim to take (or to pass), using the engine's shanten numbers, and name the one thing it costs me. No preamble, no recomputation.`
+      };
+    }
+  }
   const pending = view.pendingDiscard ? `
 Note: ${SEAT_LABELS[view.pendingDiscard.from]} just discarded ${tileName(view.pendingDiscard.tile)} and it is claimable.` : "";
   return {
@@ -436,7 +648,21 @@ In 60 words or fewer: name the best discard and why (use the engine ranking), th
 
 // api/_lib/anthropic.ts
 var ENDPOINT = "https://api.anthropic.com/v1/messages";
+var DEFAULT_UPSTREAM_TIMEOUT_MS = 25e3;
+var TIMED_OUT = "the coach took too long to answer";
 async function streamOnce(opts) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), opts.timeoutMs ?? DEFAULT_UPSTREAM_TIMEOUT_MS);
+  try {
+    return await streamRequest(opts, ctl.signal);
+  } catch (e) {
+    if (ctl.signal.aborted) return { ok: false, error: TIMED_OUT, status: 504 };
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function streamRequest(opts, signal) {
   const res = await fetch(ENDPOINT, {
     method: "POST",
     headers: {
@@ -450,7 +676,8 @@ async function streamOnce(opts) {
       system: opts.system,
       stream: true,
       messages: [{ role: "user", content: opts.prompt }]
-    })
+    }),
+    signal
   });
   if (!res.ok || !res.body) {
     let message = `upstream error (HTTP ${res.status})`;
@@ -494,6 +721,8 @@ async function streamOnce(opts) {
   return { ok: true, model: opts.model };
 }
 async function streamCompletion(opts) {
+  const budget = opts.timeoutMs ?? DEFAULT_UPSTREAM_TIMEOUT_MS;
+  const startedAt = Date.now();
   let first;
   try {
     first = await streamOnce(opts);
@@ -501,8 +730,10 @@ async function streamCompletion(opts) {
     first = { ok: false, error: "network error reaching the model API" };
   }
   if (first.ok || !opts.fallbackModel) return first;
+  const left = budget - (Date.now() - startedAt);
+  if (first.status === 504 || left < 3e3) return first;
   try {
-    const second = await streamOnce({ ...opts, model: opts.fallbackModel });
+    const second = await streamOnce({ ...opts, model: opts.fallbackModel, timeoutMs: left });
     return second.ok ? second : { ok: false, error: second.error, status: second.status };
   } catch {
     return { ok: false, error: "network error reaching the model API" };
@@ -630,12 +861,19 @@ function createHandler(cfg) {
         system: built.system,
         prompt: built.prompt,
         maxTokens: cfg.maxTokens,
+        ...cfg.timeoutMs ? { timeoutMs: cfg.timeoutMs } : {},
         onDelta: (text) => {
           full += text;
         }
       });
       if (!outcome.ok) {
-        res.status(outcome.status === 401 ? 401 : 502).json({ error: outcome.error });
+        res.status(outcome.status === 401 ? 401 : outcome.status === 504 ? 504 : 502).json({
+          error: outcome.error
+        });
+        return;
+      }
+      if (full.trim().length === 0) {
+        res.status(502).json({ error: "the coach returned an empty answer" });
         return;
       }
       res.status(200).json({ text: full, model: outcome.model });
@@ -653,12 +891,16 @@ function createHandler(cfg) {
 }
 
 // api/_src/coach.ts
+var maxDuration = 60;
+var UPSTREAM_TIMEOUT_MS = 3e4;
 var coach_default = createHandler({
   buildPrompt: buildCoachPrompt,
   model: "claude-haiku-4-5-20251001",
   fallbackModel: "claude-sonnet-5",
-  maxTokens: 500
+  maxTokens: 500,
+  timeoutMs: UPSTREAM_TIMEOUT_MS
 });
 export {
-  coach_default as default
+  coach_default as default,
+  maxDuration
 };

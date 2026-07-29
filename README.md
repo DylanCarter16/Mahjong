@@ -67,13 +67,16 @@ receive the same `PlayerView` and nothing else. Lessons never re-implement a rul
 Used everywhere (tests, serialisation, docs): `m1..m9` characters 萬, `p1..p9`
 circles 筒, `s1..s9` bamboo 索, `wE wS wW wN` winds, `dR dG dW` dragons,
 `bf1..bf4` flowers, `bs1..bs4` seasons. `hand("m1 m2 m3")` parses a list.
-Glyphs come from the Unicode mahjong block via `glyph()` — no image assets.
+Tiles are drawn by one component and one only: `<TileView>` (procedural SVG,
+`src/ui/tiles/`), with `<TilePool>` for a row of them. There is no text-glyph
+renderer — the Unicode mahjong block is not used for display anywhere, because a
+second path is how the red-dragon mismatch happened.
 
 ## Engine API tour
 
 | Module | Key exports | What it does |
 | --- | --- | --- |
-| `tiles.ts` | `t`, `hand`, `sortTiles`, `glyph`, `tileName`, classifiers | Tile model and parsing |
+| `tiles.ts` | `t`, `hand`, `sortTiles`, `tileName`, classifiers | Tile model and parsing |
 | `rng.ts` | `makeRng(seed)`, `shuffle` | Seedable RNG (mulberry32) — games are reproducible |
 | `wall.ts` | `buildWall({flowers}, rng)` | 144-tile wall (136 with flowers off), dead wall = last 14 |
 | `win.ts` | `decompose`, `isWinningHand`, `isValidChow/Pung/Kong` | Returns **every** valid reading of a hand (standard / seven pairs / thirteen orphans) |
@@ -192,8 +195,21 @@ the drills grade with the same model the bots play by.
 
 Eight units in order (tiles → sets → winning shape → special hands → faan &
 the minimum → reading discards → defence → guided play), each unlocking the
-next. Progress lives in React state only — refreshing resets it (by design; the
-app runs where browser storage is unavailable).
+next. Progress lives in one versioned `localStorage` key with export/import
+(`src/lessons/persistence.ts`), and degrades to memory where storage is
+unavailable.
+
+Two ways in, **one mastery score per concept**: "Start a session" runs the
+scheduler's mix (due reviews, weakest concepts, a little new material), and the
+concept map underneath it is tappable for **targeted practice** — drill defence
+directly instead of waiting for the chain to reach it. Both read and write the
+same state through the same `gradeAnswer`, so practising defence is what the
+scheduler sees next time. A concept whose prerequisites aren't mastered can
+still be practised; it's marked as being ahead of the chain, and practising it
+doesn't fake an unlock (unlocking is a statement about its *prerequisites*).
+
+Timed items warn **once** per session ("the next N questions are timed"), then
+carry a small ⏱ badge and a two-second count-in — no modal between questions.
 
 - **Tile efficiency trainer** — procedurally generated hands at a target
   shanten; your discard is graded optimal / acceptable / bad with a full
@@ -203,12 +219,20 @@ app runs where browser storage is unavailable).
 
 ## AI coach (`src/analysis`, `api/`)
 
-Two actions, both rate-limited and error-safe: **Analyse my hand** (realistic
-faan target, best discard, one defensive note) and **Review that round** (three
+Three actions, all rate-limited and error-safe: **Analyse my hand** (realistic
+faan target, best discard, one defensive note), **Should I claim it?** (whether
+to pung/chow/kong a discard — single-player only, since a multiplayer claim
+window is too short for a round trip), and **Review that round** (three
 improvements tied to specific turns from the action log). Coach requests
 originate client-side and hit the proxy directly; the game server never touches
 the key. The prompt is built server-side from a validated `PlayerView` — no
-client-supplied prompt/model/messages.
+client-supplied prompt/model/messages; even the claim-vs-discard *mode* is
+derived from the validated state's own phase.
+
+Every request has a ceiling at both ends — an upstream budget inside the
+function's `maxDuration`, and a client timeout above it — so a stalled model
+always becomes "couldn't generate a review" with a retry, never a spinner that
+runs forever.
 
 In multiplayer the coach is exposed to strangers spending the host's key, so:
 it's a **host setting** (default on, shown in the lobby rule summary and visible
@@ -216,9 +240,20 @@ to the room); the proxy rate-limits per real IP (`x-real-ip`), per room, and
 under a **global daily ceiling** independent of IP; a malformed BYO key is
 rejected before any upstream call; and the **bring-your-own-key** hatch is
 surfaced in the lobby (memory only, never saved, never sent to the game server)
-to skip the shared limit. When the coach is off, the **local ranked-discard
-table** — computed by the engine, free and instant — still shows. Uses
-`claude-fable-5`, falls back to `claude-opus-4-8`.
+to skip the shared limit. When the coach is off its launcher is **gone**, but
+the **local ranked-discard table** — computed by the engine, free, instant, and
+gated by a separate "beginner aids allowed" house rule — still has its own
+entry point. Uses `claude-fable-5`, falls back to `claude-opus-4-8`.
+
+### House rules vs display preferences
+
+A **house rule** is the host's, applies to the room, and is locked once the game
+starts (faan minimum, flowers, timers, `coachAllowed`, `beginnerAidsAllowed`). A
+**display preference** is yours, lives only in this browser, never crosses the
+wire, and is changeable any time in either mode — numbered tiles, whether *you*
+want the beginner aids, reduced motion, your own API key. The ⚙ on the
+multiplayer table opens exactly those. Where the two meet, the host wins: with
+`beginnerAidsAllowed` off, your personal aids toggle is disabled and says why.
 
 > **Deploy note:** the in-memory limiters are per warm serverless instance, so
 > the daily ceiling is a true global cap only once the counters are moved to

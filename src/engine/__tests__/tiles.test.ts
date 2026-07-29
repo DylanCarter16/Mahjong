@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   ALL_PLAY_KINDS,
   BONUS_KINDS,
-  glyph,
   hand,
   isBonus,
   isHonour,
@@ -56,19 +55,12 @@ describe('tile ids', () => {
     expect(rankOf('dR')).toBeNull()
   })
 
-  it('maps every kind to a unique mahjong-block glyph', () => {
-    const all = [...ALL_PLAY_KINDS, ...BONUS_KINDS].map(glyph)
-    expect(new Set(all).size).toBe(42)
-    for (const g of all) {
-      const cp = g.codePointAt(0)!
-      expect(cp).toBeGreaterThanOrEqual(0x1f000)
-      expect(cp).toBeLessThanOrEqual(0x1f02a)
-    }
-    expect(glyph('m1')).toBe('🀇')
-    expect(glyph('s1')).toBe('🀐')
-    expect(glyph('p1')).toBe('🀙')
-    expect(glyph('wE')).toBe('🀀')
-    expect(glyph('dR')).toBe('🀄')
+  it('has no text-glyph renderer — tiles have exactly one rendering path (§D1)', async () => {
+    // A second, worse tile renderer (the Unicode mahjong block as inline text)
+    // is what produced the red-dragon mismatch and kept coming back in corners.
+    // The module must not export one at all.
+    const tiles = await import('../tiles')
+    expect('glyph' in tiles).toBe(false)
   })
 
   it('names tiles for teaching UI', () => {

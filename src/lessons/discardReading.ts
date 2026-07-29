@@ -5,7 +5,7 @@ import { botAction, dangerScore, type Difficulty } from '../engine/bots'
 import { shanten } from '../engine/shanten'
 import { applyAction, createGame, playerView, type GameState, type PlayerView } from '../engine/game'
 import { makeRng, shuffle, type Rng } from '../engine/rng'
-import { glyph, suitOf, tileName } from '../engine/tiles'
+import { suitOf, tileName } from '../engine/tiles'
 import { SEATS, type Seat, type Suit, type TileId } from '../engine/types'
 
 export interface QuizQuestion {
@@ -118,7 +118,10 @@ function safestQuestion(view: PlayerView, rng: Rng): QuizQuestion | null {
     kind: 'safest',
     opponent: target,
     prompt: `${NAMES[target]} looks the most developed. Which of these tiles from your hand is safest to discard?`,
-    options: shuffled.map((p) => `${glyph(p.t)} ${tileName(p.t)}`),
+    // Name only: `optionTiles` carries the tile, and the UI draws it with the
+    // real tile component. A glyph character here rendered a second, worse
+    // copy of the same tile right next to the first one.
+    options: shuffled.map((p) => tileName(p.t)),
     optionTiles: shuffled.map((p) => p.t),
     correct,
     explain:

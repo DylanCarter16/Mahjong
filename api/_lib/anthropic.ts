@@ -12,6 +12,14 @@ export interface StreamOptions {
   prompt: string
   maxTokens: number
   onDelta: (text: string) => void
+  /**
+   * Ceiling on one upstream attempt. Without it a stalled stream hangs until
+   * the PLATFORM kills the function, which answers the browser with an opaque
+   * gateway error (or nothing at all) — the "review never returns" bug. With
+   * it we always get to send our own clean JSON error. Keep the sum of the
+   * attempts comfortably under the function's maxDuration.
+   */
+  timeoutMs?: number
 }
 
 export type StreamOutcome =
@@ -24,8 +32,29 @@ interface SseEvent {
   error?: { message?: string }
 }
 
+export const DEFAULT_UPSTREAM_TIMEOUT_MS = 25_000
+
+/** Marker so the caller can report a timeout as a timeout, not a network blip. */
+export const TIMED_OUT = 'the coach took too long to answer'
+
 async function streamOnce(
   opts: Omit<StreamOptions, 'fallbackModel'>,
+): Promise<StreamOutcome & { refusal?: boolean }> {
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), opts.timeoutMs ?? DEFAULT_UPSTREAM_TIMEOUT_MS)
+  try {
+    return await streamRequest(opts, ctl.signal)
+  } catch (e) {
+    if (ctl.signal.aborted) return { ok: false, error: TIMED_OUT, status: 504 }
+    throw e
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function streamRequest(
+  opts: Omit<StreamOptions, 'fallbackModel'>,
+  signal: AbortSignal,
 ): Promise<StreamOutcome & { refusal?: boolean }> {
   const res = await fetch(ENDPOINT, {
     method: 'POST',
@@ -41,6 +70,7 @@ async function streamOnce(
       stream: true,
       messages: [{ role: 'user', content: opts.prompt }],
     }),
+    signal,
   })
   if (!res.ok || !res.body) {
     let message = `upstream error (HTTP ${res.status})`
@@ -88,6 +118,8 @@ async function streamOnce(
 
 /** Stream a completion, falling back to `fallbackModel` on error or refusal. */
 export async function streamCompletion(opts: StreamOptions): Promise<StreamOutcome> {
+  const budget = opts.timeoutMs ?? DEFAULT_UPSTREAM_TIMEOUT_MS
+  const startedAt = Date.now()
   let first: StreamOutcome & { refusal?: boolean }
   try {
     first = await streamOnce(opts)
@@ -95,8 +127,12 @@ export async function streamCompletion(opts: StreamOptions): Promise<StreamOutco
     first = { ok: false, error: 'network error reaching the model API' }
   }
   if (first.ok || !opts.fallbackModel) return first
+  // A timeout means the budget is spent — a second model would only stall the
+  // browser further, so report the timeout instead of retrying into it.
+  const left = budget - (Date.now() - startedAt)
+  if (first.status === 504 || left < 3_000) return first
   try {
-    const second = await streamOnce({ ...opts, model: opts.fallbackModel })
+    const second = await streamOnce({ ...opts, model: opts.fallbackModel, timeoutMs: left })
     return second.ok ? second : { ok: false, error: second.error, status: second.status }
   } catch {
     return { ok: false, error: 'network error reaching the model API' }

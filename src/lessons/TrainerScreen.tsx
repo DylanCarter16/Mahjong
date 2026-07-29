@@ -6,8 +6,9 @@ import { useMemo, useRef, useState } from 'react'
 import { dangerScore } from '../engine/bots'
 import type { PlayerView } from '../engine/game'
 import { makeRng, shuffle, type Rng } from '../engine/rng'
-import { ALL_PLAY_KINDS, glyph, isHonour, suitOf, tileName } from '../engine/tiles'
+import { ALL_PLAY_KINDS, isHonour, suitOf, tileName } from '../engine/tiles'
 import type { Seat, TileId } from '../engine/types'
+import { MeldRow, TilePool } from '../ui/panels'
 import { TileView } from '../ui/TileView'
 import { errorClassProse } from './explain'
 import { curveVerdict, generateHand, gradeDiscard, type CurveVerdict, type DiscardGrade } from './efficiencyTrainer'
@@ -15,6 +16,8 @@ import { gradeAnswer, type ProgressState } from './mastery'
 
 const TIME_LIMIT_MS = 12_000
 const THREAT_SEAT: Seat = 2
+/** Cap on the "which tiles advance" list; the rest are counted, not drawn. */
+const ADVANCING_SHOWN = 6
 
 const VERDICT_STYLE: Record<CurveVerdict, { cls: string; words: string }> = {
   optimal: { cls: 'border-safe bg-safe/10', words: 'Optimal — best shanten, widest wait.' },
@@ -148,8 +151,10 @@ export function TrainerScreen({ progress, update, onExit }: {
   return (
     <div className="mx-auto flex max-w-3xl flex-col items-center gap-4 p-4 pb-16">
       <div className="flex w-full flex-wrap items-center justify-between gap-2 text-sm text-parchment-dim">
-        <button className="cursor-pointer hover:text-parchment" onClick={onExit}>← back</button>
-        <div className="flex items-center gap-3">
+        <button className="min-h-11 cursor-pointer hover:text-parchment" onClick={onExit}>← back</button>
+        {/* Wraps: the tier select is as wide as its longest option, which alone
+            overflowed a 375px screen. */}
+        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
           <label className="flex items-center gap-1.5">
             tier
             <select
@@ -175,10 +180,25 @@ export function TrainerScreen({ progress, update, onExit }: {
       <h2 className="font-serif text-xl font-semibold text-parchment">Tile efficiency trainer</h2>
 
       {view && (
-        <div className="w-full rounded-xl border border-danger/40 bg-paper-raised p-3 text-xs text-parchment">
-          <span className="font-semibold text-danger">West is threatening:</span> 2 exposed pungs, {view.discards[2].length}{' '}
-          discards, 18 wall tiles left. Their pool:{' '}
-          <span className="text-parchment-dim">{view.discards[2].map(glyph).join(' ')}</span>
+        /* Reading this pool IS the drill, so it gets the table's own discard-row
+           treatment at a legible size — not an inline strip of glyph characters.
+           It stays reference material next to your hand below, hence md rather
+           than the hand's lg. */
+        <div className="w-full rounded-xl border border-danger/40 bg-paper-raised p-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1 text-xs text-parchment">
+            <span>
+              <span className="font-semibold text-danger">West is threatening</span> · 2 exposed pungs ·{' '}
+              {view.discards[THREAT_SEAT].length} discards · 18 wall tiles left
+            </span>
+            <span className="text-parchment-dim">their discards, in order:</span>
+          </div>
+          <div className="mt-2 rounded-lg bg-felt p-2">
+            <TilePool tiles={view.discards[THREAT_SEAT]} size="md" numbered perRow={6} />
+          </div>
+          <div className="mt-2 flex items-center gap-2 text-xs text-parchment-dim">
+            <span>exposed:</span>
+            <MeldRow melds={view.melds[THREAT_SEAT]} numbered small />
+          </div>
         </div>
       )}
 
@@ -205,8 +225,8 @@ export function TrainerScreen({ progress, update, onExit }: {
                   <th className="py-1 pr-3">discard</th>
                   <th className="py-1 pr-3">shanten</th>
                   <th className="py-1 pr-3">live</th>
-                  <th className="py-1 pr-3">which tiles advance</th>
-                  {view && <th className="py-1">vs West</th>}
+                  <th className="py-1 pr-3">advances</th>
+                  {view && <th className="py-1">West</th>}
                 </tr>
               </thead>
               <tbody>
@@ -214,10 +234,32 @@ export function TrainerScreen({ progress, update, onExit }: {
                   .sort((a, b) => a.shantenAfter - b.shantenAfter || b.liveCount - a.liveCount)
                   .map((e) => (
                     <tr key={e.tile} className={`${e.tile === choice.tile ? 'font-bold text-parchment' : 'text-parchment-dim'}`}>
-                      <td className="py-0.5 pr-3">{glyph(e.tile)} {tileName(e.tile)}</td>
+                      <td className="py-0.5 pr-3">
+                        <span className="flex items-center gap-1 whitespace-nowrap">
+                          <TileView tile={e.tile} size="xs" /> {tileName(e.tile)}
+                        </span>
+                      </td>
                       <td className="tabular py-0.5 pr-3">{e.shantenAfter === -1 ? 'win' : e.shantenAfter}</td>
                       <td className="tabular py-0.5 pr-3">{e.liveCount}</td>
-                      <td className="py-0.5 pr-3">{e.advancing.map(glyph).join(' ') || '—'}</td>
+                      {/* A fixed min-width so the tiles flow along the row; without
+                          it the cell collapses to one tile per line and the table
+                          becomes metres tall. The wrapper scrolls sideways. */}
+                      <td className="min-w-32 py-0.5 pr-3">
+                        {e.advancing.length === 0 ? (
+                          '—'
+                        ) : (
+                          <span className="flex flex-wrap items-center gap-0.5">
+                            {e.advancing.slice(0, ADVANCING_SHOWN).map((t) => (
+                              <TileView key={t} tile={t} size="xs" />
+                            ))}
+                            {e.advancing.length > ADVANCING_SHOWN && (
+                              <span className="tabular text-[0.65rem]">
+                                +{e.advancing.length - ADVANCING_SHOWN}
+                              </span>
+                            )}
+                          </span>
+                        )}
+                      </td>
                       {view && <td className="py-0.5">{dangerWord(danger(e.tile))}</td>}
                     </tr>
                   ))}

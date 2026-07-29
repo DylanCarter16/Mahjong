@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { CONCEPTS } from '../concepts'
 import {
+  buildFocusedSession,
   buildSession,
   DAILY_GOAL,
   emptyProgress,
   gradeAnswer,
   INTERVALS,
   isUnlocked,
+  masteryOf,
   type ProgressState,
 } from '../mastery'
+import { COUNT_IN_MS, timedNotice } from '../timing'
 import { exportJSON, importJSON, loadProgress, saveProgress, type StorageLike } from '../persistence'
 
 const T0 = new Date('2026-07-16T10:00:00Z')
@@ -148,5 +151,83 @@ describe('persistence', () => {
     let s = emptyProgress()
     for (let i = 0; i < 600; i++) s = answer(s)
     expect(s.answers.length).toBeLessThanOrEqual(500)
+  })
+})
+
+describe('targeted practice shares one mastery state (§C2)', () => {
+  const drill = (s: ProgressState, concept: Parameters<typeof gradeAnswer>[1]['concept'], n: number) => {
+    let out = s
+    for (let i = 0; i < n; i++) {
+      out = gradeAnswer(out, { concept, correct: true, ms: 1500, difficulty: 3 }, T0)
+    }
+    return out
+  }
+
+  it('builds a session made only of the chosen concept', () => {
+    const plan = buildFocusedSession(emptyProgress(), T0, 'defence.safe-tiles', 8)
+    expect(plan.entries).toHaveLength(8)
+    expect(new Set(plan.entries.map((e) => e.concept))).toEqual(new Set(['defence.safe-tiles']))
+  })
+
+  it('is practisable ahead of the chain, and does not fake an unlock', () => {
+    // push-fold needs safe-tiles AND read.threat; it starts locked.
+    let s = emptyProgress()
+    expect(isUnlocked(s, 'defence.push-fold')).toBe(false)
+    expect(buildFocusedSession(s, T0, 'defence.push-fold').entries.length).toBeGreaterThan(0)
+    s = drill(s, 'defence.push-fold', 6)
+    // Its own mastery moved…
+    expect(masteryOf(s, 'defence.push-fold')).toBeGreaterThan(0.5)
+    // …but unlocking is a statement about its PREREQS, which are untouched.
+    expect(isUnlocked(s, 'defence.push-fold')).toBe(false)
+  })
+
+  it('practice moves the mastery the main chain reads — one number, not two', () => {
+    // A player who has worked through the course, then let defence rot: the
+    // scheduler puts it at the front because it is weakest and due.
+    let s = emptyProgress()
+    for (let pass = 0; pass < 3; pass++) {
+      for (const c of CONCEPTS) {
+        s = gradeAnswer(s, { concept: c.id, correct: true, ms: 1200, difficulty: 3 }, T0)
+      }
+    }
+    for (let i = 0; i < 4; i++) {
+      s = gradeAnswer(s, { concept: 'defence.safe-tiles', correct: false, ms: 4000, difficulty: 1 }, T0)
+    }
+    expect(isUnlocked(s, 'defence.safe-tiles')).toBe(true)
+
+    const beforeCount = buildSession(s, day(1)).entries.filter((e) => e.concept === 'defence.safe-tiles').length
+    expect(beforeCount, 'setup: the chain should be pushing defence here').toBeGreaterThan(0)
+    // Grind defence via the targeted path only.
+    const after = drill(s, 'defence.safe-tiles', 8)
+    expect(masteryOf(after, 'defence.safe-tiles')).toBeGreaterThan(masteryOf(s, 'defence.safe-tiles'))
+
+    const afterCount = buildSession(after, day(1)).entries.filter((e) => e.concept === 'defence.safe-tiles').length
+    expect(afterCount, 'the chain kept feeding a concept the player just mastered').toBeLessThan(beforeCount)
+  })
+})
+
+describe('timed-item pacing (§C1)', () => {
+  it('says nothing when nothing is timed', () => {
+    expect(timedNotice([undefined, undefined, undefined])).toBeNull()
+  })
+
+  it('names the leading run of timed questions', () => {
+    const n = timedNotice([12000, 12000, 12000, undefined, undefined])
+    expect(n).toMatch(/next 3 questions are timed/)
+    expect(n).toMatch(/12 seconds/)
+  })
+
+  it('handles an all-timed session', () => {
+    expect(timedNotice([8000, 8000])).toMatch(/All 2 questions/)
+  })
+
+  it('does not promise a run when timed items are interleaved', () => {
+    const n = timedNotice([undefined, 12000, undefined, 12000])
+    expect(n).toMatch(/2 of these 4/)
+    expect(n).not.toMatch(/next \d+ questions/)
+  })
+
+  it('counts one item in from the start of the clock, not the render', () => {
+    expect(COUNT_IN_MS).toBeGreaterThan(0)
   })
 })
