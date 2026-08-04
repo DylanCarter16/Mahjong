@@ -20,6 +20,12 @@ export interface EndpointConfig {
    * returns — the review bug).
    */
   timeoutMs?: number
+  /**
+   * Thinking mode. Set it explicitly — an omitted value means "adaptive" on
+   * current models, which silently competes with `maxTokens` for the same
+   * budget. See StreamOptions.thinking.
+   */
+  thinking?: { type: 'disabled' } | { type: 'adaptive' }
 }
 
 // In-memory rate buckets. IMPORTANT (audit H2): these are per warm function
@@ -147,6 +153,7 @@ export function createHandler(cfg: EndpointConfig) {
         prompt: built.prompt,
         maxTokens: cfg.maxTokens,
         ...(cfg.timeoutMs ? { timeoutMs: cfg.timeoutMs } : {}),
+        ...(cfg.thinking ? { thinking: cfg.thinking } : {}),
         onDelta: (text) => {
           full += text
         },

@@ -675,6 +675,7 @@ async function streamRequest(opts, signal) {
       max_tokens: opts.maxTokens,
       system: opts.system,
       stream: true,
+      ...opts.thinking ? { thinking: opts.thinking } : {},
       messages: [{ role: "user", content: opts.prompt }]
     }),
     signal
@@ -693,6 +694,8 @@ async function streamRequest(opts, signal) {
   let buffer = "";
   let refusal = false;
   let emitted = false;
+  const blockTypes = /* @__PURE__ */ new Set();
+  let stopReason = null;
   for (; ; ) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -709,15 +712,28 @@ async function streamRequest(opts, signal) {
       } catch {
         continue;
       }
+      if (ev.type === "content_block_start" && ev.content_block?.type) {
+        blockTypes.add(ev.content_block.type);
+      }
       if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta" && ev.delta.text) {
         opts.onDelta(ev.delta.text);
         emitted = true;
       }
-      if (ev.type === "message_delta" && ev.delta?.stop_reason === "refusal") refusal = true;
+      if (ev.type === "message_delta" && ev.delta?.stop_reason) {
+        stopReason = ev.delta.stop_reason;
+        if (ev.delta.stop_reason === "refusal") refusal = true;
+      }
       if (ev.type === "error") return { ok: false, error: ev.error?.message ?? "upstream stream error" };
     }
   }
-  if (refusal && !emitted) return { ok: false, error: "refusal", refusal: true };
+  if (refusal && !emitted) return { ok: false, error: "refusal", refusal: true, noText: { blockTypes: [...blockTypes], stopReason } };
+  if (!emitted) {
+    return {
+      ok: false,
+      error: `the model returned no text (blocks: ${[...blockTypes].join(", ") || "none"}; stop_reason: ${stopReason ?? "none"})`,
+      noText: { blockTypes: [...blockTypes], stopReason }
+    };
+  }
   return { ok: true, model: opts.model };
 }
 async function streamCompletion(opts) {
@@ -862,6 +878,7 @@ function createHandler(cfg) {
         prompt: built.prompt,
         maxTokens: cfg.maxTokens,
         ...cfg.timeoutMs ? { timeoutMs: cfg.timeoutMs } : {},
+        ...cfg.thinking ? { thinking: cfg.thinking } : {},
         onDelta: (text) => {
           full += text;
         }
@@ -898,7 +915,12 @@ var coach_default = createHandler({
   model: "claude-haiku-4-5-20251001",
   fallbackModel: "claude-sonnet-5",
   maxTokens: 500,
-  timeoutMs: UPSTREAM_TIMEOUT_MS
+  timeoutMs: UPSTREAM_TIMEOUT_MS,
+  // Haiku 4.5 doesn't think unless asked, which is why this endpoint never hit
+  // the empty-answer bug — but its FALLBACK is claude-sonnet-5, which thinks by
+  // default. Pinned here so the rescue path can't inherit the failure it exists
+  // to rescue. See api/_src/review.ts for the full explanation.
+  thinking: { type: "disabled" }
 });
 export {
   coach_default as default,

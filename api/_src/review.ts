@@ -26,4 +26,16 @@ export default createHandler({
   fallbackModel: 'claude-haiku-4-5-20251001',
   maxTokens: 700,
   timeoutMs: UPSTREAM_TIMEOUT_MS,
+  // THE review bug. `claude-sonnet-5` runs ADAPTIVE THINKING when `thinking` is
+  // omitted, and max_tokens caps thinking + text together — so all 700 tokens
+  // went to reasoning over a full action log and the response contained no text
+  // block at all. Every single time, at normal latency, which is exactly what
+  // "empty answer, deterministic" looks like from the outside.
+  //
+  // Off, not bigger: this call narrates engine-computed facts into three
+  // numbered points in 180 words. The system prompt already forbids
+  // recomputation, so reasoning budget buys nothing here and costs latency on a
+  // request the player is waiting on. If you ever want it on, raise maxTokens
+  // well clear of the visible-output budget first — thinking eats the same cap.
+  thinking: { type: 'disabled' },
 })

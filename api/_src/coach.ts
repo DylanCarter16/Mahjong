@@ -25,4 +25,9 @@ export default createHandler({
   fallbackModel: 'claude-sonnet-5',
   maxTokens: 500,
   timeoutMs: UPSTREAM_TIMEOUT_MS,
+  // Haiku 4.5 doesn't think unless asked, which is why this endpoint never hit
+  // the empty-answer bug — but its FALLBACK is claude-sonnet-5, which thinks by
+  // default. Pinned here so the rescue path can't inherit the failure it exists
+  // to rescue. See api/_src/review.ts for the full explanation.
+  thinking: { type: 'disabled' },
 })
