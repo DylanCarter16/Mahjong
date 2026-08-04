@@ -193,6 +193,7 @@ async function streamRequest(opts, signal) {
       max_tokens: opts.maxTokens,
       system: opts.system,
       stream: true,
+      ...opts.thinking ? { thinking: opts.thinking } : {},
       messages: [{ role: "user", content: opts.prompt }]
     }),
     signal
@@ -211,6 +212,8 @@ async function streamRequest(opts, signal) {
   let buffer = "";
   let refusal = false;
   let emitted = false;
+  const blockTypes = /* @__PURE__ */ new Set();
+  let stopReason = null;
   for (; ; ) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -227,15 +230,28 @@ async function streamRequest(opts, signal) {
       } catch {
         continue;
       }
+      if (ev.type === "content_block_start" && ev.content_block?.type) {
+        blockTypes.add(ev.content_block.type);
+      }
       if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta" && ev.delta.text) {
         opts.onDelta(ev.delta.text);
         emitted = true;
       }
-      if (ev.type === "message_delta" && ev.delta?.stop_reason === "refusal") refusal = true;
+      if (ev.type === "message_delta" && ev.delta?.stop_reason) {
+        stopReason = ev.delta.stop_reason;
+        if (ev.delta.stop_reason === "refusal") refusal = true;
+      }
       if (ev.type === "error") return { ok: false, error: ev.error?.message ?? "upstream stream error" };
     }
   }
-  if (refusal && !emitted) return { ok: false, error: "refusal", refusal: true };
+  if (refusal && !emitted) return { ok: false, error: "refusal", refusal: true, noText: { blockTypes: [...blockTypes], stopReason } };
+  if (!emitted) {
+    return {
+      ok: false,
+      error: `the model returned no text (blocks: ${[...blockTypes].join(", ") || "none"}; stop_reason: ${stopReason ?? "none"})`,
+      noText: { blockTypes: [...blockTypes], stopReason }
+    };
+  }
   return { ok: true, model: opts.model };
 }
 async function streamCompletion(opts) {
@@ -380,6 +396,7 @@ function createHandler(cfg) {
         prompt: built.prompt,
         maxTokens: cfg.maxTokens,
         ...cfg.timeoutMs ? { timeoutMs: cfg.timeoutMs } : {},
+        ...cfg.thinking ? { thinking: cfg.thinking } : {},
         onDelta: (text) => {
           full += text;
         }
@@ -418,7 +435,19 @@ var review_default = createHandler({
   // upstream response was terminal. Same ladder, one rung faster.
   fallbackModel: "claude-haiku-4-5-20251001",
   maxTokens: 700,
-  timeoutMs: UPSTREAM_TIMEOUT_MS
+  timeoutMs: UPSTREAM_TIMEOUT_MS,
+  // THE review bug. `claude-sonnet-5` runs ADAPTIVE THINKING when `thinking` is
+  // omitted, and max_tokens caps thinking + text together — so all 700 tokens
+  // went to reasoning over a full action log and the response contained no text
+  // block at all. Every single time, at normal latency, which is exactly what
+  // "empty answer, deterministic" looks like from the outside.
+  //
+  // Off, not bigger: this call narrates engine-computed facts into three
+  // numbered points in 180 words. The system prompt already forbids
+  // recomputation, so reasoning budget buys nothing here and costs latency on a
+  // request the player is waiting on. If you ever want it on, raise maxTokens
+  // well clear of the visible-output budget first — thinking eats the same cap.
+  thinking: { type: "disabled" }
 });
 export {
   review_default as default,

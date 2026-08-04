@@ -142,7 +142,10 @@ describe('handler responses', () => {
     expect(rec.body.error).toMatch(/too long/i)
   })
 
-  it('treats an empty completion as a failure, not a blank success', async () => {
+  // The stream layer now catches this first and says WHICH block types arrived
+  // (see streamParsing.test.ts) — a strictly better error than the handler's
+  // own blank-text guard, which stays as defence in depth.
+  it('treats a completion with no text as a failure, not a blank success', async () => {
     vi.stubGlobal('fetch', () =>
       Promise.resolve({
         ok: true,
@@ -158,6 +161,6 @@ describe('handler responses', () => {
       }),
     )
     expect(rec.statusCode).toBe(502)
-    expect(rec.body.error).toMatch(/empty/i)
+    expect(rec.body.error).toMatch(/no text|empty/i)
   })
 })
