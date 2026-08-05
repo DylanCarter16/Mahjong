@@ -90,6 +90,7 @@ export function MultiplayerScreen({
       roomCode={state.room.code}
       coachEnabled={state.room.rules.coachAllowed}
       aidsEnabled={aidsAllowedByHost}
+      numberedTiles={settings.numberedTiles}
     />
   )
 

@@ -238,6 +238,18 @@ export function replayTo(log: readonly Action[], upTo: number): ReplayBoard {
   }
 }
 
+/**
+ * The log index of the discard one turn either side of `index`, or null at the
+ * ends of the round. This is what "step ±1 turn" moves between: a turn is a
+ * tile hitting the table, which is the unit a player actually remembers.
+ */
+export function stepTurn(log: readonly Action[], index: number, dir: -1 | 1): number | null {
+  for (let i = index + dir; i >= 0 && i < log.length; i += dir) {
+    if (log[i].type === 'discard') return i
+  }
+  return null
+}
+
 /** Derived live-wall count for a board. See LIVE_WALL_AT_DEAL on accuracy. */
 export const derivedWallCount = (board: ReplayBoard): number =>
   Math.max(0, LIVE_WALL_AT_DEAL - board.draws)

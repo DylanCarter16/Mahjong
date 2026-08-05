@@ -54,6 +54,7 @@ export function AnalysisPanel({
   coachEnabled = true,
   aidsEnabled = true,
   claimAdvice = false,
+  numberedTiles = true,
 }: {
   view: PlayerView
   /** Round-end disclosure (result + full log) — null while a round is live. */
@@ -81,6 +82,8 @@ export function AnalysisPanel({
    * table would be fine, but the ask was explicitly solo-only).
    */
   claimAdvice?: boolean
+  /** Rank overlays on tiles — the same display preference as the table. */
+  numberedTiles?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -429,6 +432,7 @@ export function AnalysisPanel({
         </p>
       )}
 
+
       {/* One stable, min-height container for every coach-output state, so the
           panel doesn't jump when "Thinking…" is replaced by the answer. Every
           request settles — the client times out — so this can never be a
@@ -474,8 +478,16 @@ export function AnalysisPanel({
               {/* A review that came back with an engine-graded shortlist renders
                   as moments; everything else (the coach, and a review that fell
                   back to the whole-log prompt) is still prose. */}
-              {result?.ok && result.review ? (
-                <ReviewOutput review={result.review} text={result.text} />
+              {result?.ok && result.review && finished ? (
+                <ReviewOutput
+                  review={result.review}
+                  text={result.text}
+                  log={finished.log}
+                  seat={view.seat}
+                  seatWinds={view.seatWinds}
+                  snapshots={finished.snapshots}
+                  numbered={numberedTiles}
+                />
               ) : (
                 shownText
               )}
@@ -487,7 +499,7 @@ export function AnalysisPanel({
         </div>
       )}
       <p className="mt-2 text-[0.65rem] text-emerald-400/50">
-        Tables = exact engine analysis (instant, local).
+        Tables, badges, replayed boards and every count = exact engine analysis (instant, local).
         {coachEnabled ? ` Prose = model narration${byoKey ? ', using your key' : ''}.` : ''}
       </p>
     </div>

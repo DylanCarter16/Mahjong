@@ -73,6 +73,7 @@ export function TilePool({
   size = 'sm',
   perRow = 6,
   pending = null,
+  highlight = null,
 }: {
   tiles: TileId[]
   numbered?: boolean
@@ -80,6 +81,12 @@ export function TilePool({
   perRow?: number
   /** The tile mid-flight, drawn with the "consider" ring and a soft pulse. */
   pending?: TileId | null
+  /**
+   * Light up every copy of this kind already in the pool. The post-round review
+   * uses it to make "the third Red Dragon out" something you can see rather
+   * than a number to take on trust.
+   */
+  highlight?: TileId | null
 }) {
   const maxWidth = `${perRow * TILE_REM[size] + (perRow - 1) * POOL_GAP_REM}rem`
   return (
@@ -89,7 +96,13 @@ export function TilePool({
       style={{ maxWidth }}
     >
       {tiles.map((t, i) => (
-        <TileView key={i} tile={t} size={size} numbered={numbered} />
+        <TileView
+          key={i}
+          tile={t}
+          size={size}
+          numbered={numbered}
+          {...(highlight && t === highlight ? { state: 'highlighted' as const } : {})}
+        />
       ))}
       {pending && (
         <div className="animate-pulse">

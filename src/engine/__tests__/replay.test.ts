@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { botAction } from '../bots'
 import { applyAction, createGame, legalActions, playerView, type Action, type GameState } from '../game'
 import { makeRng } from '../rng'
-import { LIVE_WALL_AT_DEAL, derivedWallCount, replayTo, visibleOnTable } from '../replay'
+import { LIVE_WALL_AT_DEAL, derivedWallCount, replayTo, stepTurn, visibleOnTable } from '../replay'
 import { SEATS } from '../types'
 
 /** Play a full round, keeping every intermediate state alongside the log. */
@@ -146,6 +146,40 @@ describe('replayTo reproduces the real table', () => {
       if (truth.phase === 'finished' || truth.phase === 'claims') continue
       expect(replayTo(log, i).toAct, `toAct @${i}`).toBe(truth.turn)
     }
+  })
+})
+
+describe('stepTurn', () => {
+  it('walks between the tiles that hit the table, in both directions', () => {
+    const { log } = playRound('step')
+    const discards = log.map((a, i) => (a.type === 'discard' ? i : -1)).filter((i) => i >= 0)
+    expect(discards.length).toBeGreaterThan(5)
+
+    // Forward from each discard lands on the next one, and back again returns.
+    for (let k = 0; k < discards.length - 1; k++) {
+      expect(stepTurn(log, discards[k], 1)).toBe(discards[k + 1])
+      expect(stepTurn(log, discards[k + 1], -1)).toBe(discards[k])
+    }
+  })
+
+  it('returns null at the ends rather than wrapping or throwing', () => {
+    const { log } = playRound('stepEnds')
+    const discards = log.map((a, i) => (a.type === 'discard' ? i : -1)).filter((i) => i >= 0)
+    expect(stepTurn(log, discards[0], -1)).toBeNull()
+    expect(stepTurn(log, discards[discards.length - 1], 1)).toBeNull()
+    expect(stepTurn([], 0, 1)).toBeNull()
+    expect(stepTurn(log, -50, -1)).toBeNull()
+    expect(stepTurn(log, log.length + 50, 1)).toBeNull()
+  })
+
+  it('steps from a non-discard action, which is where a missed claim sits', () => {
+    const { log } = playRound('stepPass')
+    const pass = log.findIndex((a) => a.type === 'pass')
+    expect(pass).toBeGreaterThan(0)
+    // The discard being passed on is behind it; the next one is ahead.
+    const back = stepTurn(log, pass, -1)
+    expect(back).not.toBeNull()
+    expect(log[back!].type).toBe('discard')
   })
 })
 

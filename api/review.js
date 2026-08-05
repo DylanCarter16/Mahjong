@@ -667,6 +667,19 @@ var SnapshotCursor = class {
     return null;
   }
 };
+function handsByDecision(log, seat, snapshots) {
+  const cursor = new SnapshotCursor(snapshots);
+  const out = /* @__PURE__ */ new Map();
+  for (let i = 0; i < log.length; i++) {
+    const a = log[i];
+    if (a.seat !== seat) continue;
+    if (a.type !== "discard" && a.type !== "pass" && a.type !== "claim") continue;
+    const board = replayTo(log, i);
+    const snap = a.type === "discard" ? cursor.take("discard", board, seat, a.tile) : cursor.take("claims", board, seat, null);
+    if (snap) out.set(i, snap);
+  }
+  return out;
+}
 function riskOf(r, reads) {
   let worst = 0;
   for (const o of reads) {
@@ -716,6 +729,7 @@ function gradeDiscard(input, index, tile, board, snap) {
       headline: `You discarded the ${tileName(tile)}.`,
       facts,
       better: null,
+      leak: dealtIn ? "dealtIn" : null,
       weight: dealtIn ? 100 : 0,
       replayable: true
     };
@@ -727,14 +741,18 @@ function gradeDiscard(input, index, tile, board, snap) {
   const given = risk - riskOf(safest, reads);
   let verdict = "fine";
   let weight = 0;
+  let leak = null;
   if (dealtIn) {
     verdict = "mistake";
+    leak = "dealtIn";
     weight = 100 + risk;
   } else if (speedCost >= 2 || given >= 4) {
     verdict = "mistake";
+    leak = speedCost >= 2 ? "slowDiscard" : loud.length > 0 ? "fedThreat" : "looseDiscard";
     weight = 55 + given * 4 + speedCost * 12;
   } else if (speedCost === 1 || given >= 2) {
     verdict = "loose";
+    leak = speedCost === 1 ? "slowDiscard" : loud.length > 0 ? "fedThreat" : "looseDiscard";
     weight = 28 + given * 3 + speedCost * 6;
   } else if (loud.length > 0 && speedCost === 0 && given === 0 && risk <= 2) {
     verdict = "sharp";
@@ -768,6 +786,7 @@ function gradeDiscard(input, index, tile, board, snap) {
     headline,
     facts,
     better,
+    leak,
     weight,
     replayable: true
   };
@@ -795,6 +814,7 @@ function gradePass(input, index, board, snap) {
     headline: win ? `You passed on the winning tile \u2014 the ${tileName(tile)}.` : `You passed on a ${claimWord(taken.claim)} that would have sped you up.`,
     facts,
     better: null,
+    leak: win ? "passedWin" : "missedClaim",
     weight: win ? 95 : 40 + (taken.shantenBefore - taken.shantenAfter) * 10,
     replayable: true
   };
@@ -804,7 +824,7 @@ var suitWord = (s) => s === "m" ? "Characters" : s === "p" ? "Circles" : s === "
 var shantenWord = (n) => n <= -1 ? "complete" : n === 0 ? "ready" : n === 1 ? "one away" : `${n} away`;
 function scanRound(input) {
   const { log, seat } = input;
-  const cursor = new SnapshotCursor(input.snapshots);
+  const hands = handsByDecision(log, seat, input.snapshots);
   const moments = [];
   const degraded = [];
   for (let i = 0; i < log.length; i++) {
@@ -813,7 +833,7 @@ function scanRound(input) {
     const board = replayTo(log, i);
     const turn = turnAt(log, i);
     if (a.type === "discard") {
-      const snap = cursor.take("discard", board, seat, a.tile);
+      const snap = hands.get(i);
       if (!snap) {
         degraded.push(`turn ${turn}: no hand captured for your discard, graded on public facts only`);
         const dealtIn = windowAfter(log, i).some((x) => x.type === "claim" && x.claim === "win");
@@ -828,6 +848,7 @@ function scanRound(input) {
             `You discarded the ${tileName(a.tile)} on turn ${turn} \u2014 ${visibleOnTable(replayTo(log, i + 1), a.tile)} of 4 visible.`
           ],
           better: null,
+          leak: dealtIn ? "dealtIn" : null,
           weight: dealtIn ? 100 : 0,
           // The public board still replays; only the hand row is missing.
           replayable: false
@@ -838,14 +859,13 @@ function scanRound(input) {
       continue;
     }
     if (a.type === "pass") {
-      const snap = cursor.take("claims", board, seat, null);
+      const snap = hands.get(i);
       if (!snap) continue;
       const m = gradePass(input, i, board, snap);
       if (m) moments.push(m);
       continue;
     }
     if (a.type === "claim") {
-      cursor.take("claims", board, seat, null);
       if (a.claim === "win") {
         moments.push({
           index: i,
@@ -856,6 +876,7 @@ function scanRound(input) {
           headline: `You won on ${capitalise(seatName(input, board.pending?.from ?? seat))}'s ${board.pending ? tileName(board.pending.tile) : "discard"}.`,
           facts: [`You took the win on turn ${turn}.`],
           better: null,
+          leak: null,
           weight: 50,
           replayable: true
         });
@@ -872,6 +893,7 @@ function scanRound(input) {
         headline: "You won on your own draw.",
         facts: [`Self-drawn on turn ${turn}.`],
         better: null,
+        leak: null,
         weight: 50,
         replayable: true
       });

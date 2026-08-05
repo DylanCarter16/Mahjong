@@ -66,6 +66,7 @@ export function GameScreen({ settings, onChangeSettings }: {
             /* Solo claim windows never expire (SOLO_TIMING.claimWindowMs = null),
                so there is time to think about a claim — hence solo-only. */
             claimAdvice
+            numberedTiles={settings.numberedTiles}
           />
         }
       >

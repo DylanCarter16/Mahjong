@@ -59,6 +59,29 @@ export type Verdict = 'mistake' | 'loose' | 'fine' | 'sharp'
 
 export type MomentKind = 'dealIn' | 'discard' | 'missedClaim' | 'claim' | 'win'
 
+/**
+ * The recurring habit a moment is evidence of. Named here, in the engine,
+ * because the classification depends on the same measured costs the verdict
+ * does — "you left safety on the table" and "you gave up a turn of speed" are
+ * different leaks that both look like a loose discard from outside.
+ *
+ * Every one of these is something the engine can prove from the log plus the
+ * captured hand. Nothing here is a vibe.
+ */
+export type LeakId =
+  /** Discarded the tile somebody won on. */
+  | 'dealtIn'
+  /** Threw a live tile at a seat with sets down when a dead one was available. */
+  | 'fedThreat'
+  /** Left safety on the table with nobody visibly pushing. */
+  | 'looseDiscard'
+  /** Gave up a turn of speed for nothing. */
+  | 'slowDiscard'
+  /** Passed on a claim that would have advanced the hand. */
+  | 'missedClaim'
+  /** Passed on the winning tile. */
+  | 'passedWin'
+
 export interface BetterLine {
   tile: TileId
   /** Plain-English reason, built from engine numbers only. */
@@ -79,6 +102,8 @@ export interface Moment {
   /** Exact facts for the model to explain. Every number here is computed. */
   facts: string[]
   better: BetterLine | null
+  /** The habit this is evidence of, for the cross-round patterns view. */
+  leak: LeakId | null
   /** Higher = more instructive. Drives the shortlist; not shown. */
   weight: number
   /**
@@ -213,6 +238,35 @@ class SnapshotCursor {
   }
 }
 
+/**
+ * The hand this seat held at each of its own decisions, by log index.
+ *
+ * The UI needs this to draw the board at a moment — the same hand the grader
+ * graded, arrived at by the same pairing, so the picture can never disagree
+ * with the verdict printed above it. Sharing the walk is the point; two
+ * implementations of "which hand goes with which turn" would drift.
+ */
+export function handsByDecision(
+  log: readonly Action[],
+  seat: Seat,
+  snapshots: readonly HandSnapshot[] | undefined,
+): Map<number, HandSnapshot> {
+  const cursor = new SnapshotCursor(snapshots)
+  const out = new Map<number, HandSnapshot>()
+  for (let i = 0; i < log.length; i++) {
+    const a = log[i]
+    if (a.seat !== seat) continue
+    if (a.type !== 'discard' && a.type !== 'pass' && a.type !== 'claim') continue
+    const board = replayTo(log, i)
+    const snap =
+      a.type === 'discard'
+        ? cursor.take('discard', board, seat, a.tile)
+        : cursor.take('claims', board, seat, null)
+    if (snap) out.set(i, snap)
+  }
+  return out
+}
+
 // -------------------------------------------------------------- grading --
 
 /**
@@ -321,6 +375,7 @@ function gradeDiscard(
       headline: `You discarded the ${tileName(tile)}.`,
       facts,
       better: null,
+      leak: dealtIn ? 'dealtIn' : null,
       weight: dealtIn ? 100 : 0,
       replayable: true,
     }
@@ -335,14 +390,21 @@ function gradeDiscard(
 
   let verdict: Verdict = 'fine'
   let weight = 0
+  // The leak is named from WHICH cost was paid, not from the verdict: a mistake
+  // that gave up speed and a mistake that gave away safety are different habits
+  // and need different practice.
+  let leak: LeakId | null = null
   if (dealtIn) {
     verdict = 'mistake'
+    leak = 'dealtIn'
     weight = 100 + risk
   } else if (speedCost >= 2 || given >= 4) {
     verdict = 'mistake'
+    leak = speedCost >= 2 ? 'slowDiscard' : loud.length > 0 ? 'fedThreat' : 'looseDiscard'
     weight = 55 + given * 4 + speedCost * 12
   } else if (speedCost === 1 || given >= 2) {
     verdict = 'loose'
+    leak = speedCost === 1 ? 'slowDiscard' : loud.length > 0 ? 'fedThreat' : 'looseDiscard'
     weight = 28 + given * 3 + speedCost * 6
   } else if (loud.length > 0 && speedCost === 0 && given === 0 && risk <= 2) {
     // Sharp is praise, so it has to mean something: somebody was visibly
@@ -405,6 +467,7 @@ function gradeDiscard(
     headline,
     facts,
     better,
+    leak,
     weight,
     replayable: true,
   }
@@ -441,6 +504,7 @@ function gradePass(input: ReviewInput, index: number, board: ReplayBoard, snap: 
       : `You passed on a ${claimWord(taken.claim)} that would have sped you up.`,
     facts,
     better: null,
+    leak: win ? 'passedWin' : 'missedClaim',
     weight: win ? 95 : 40 + (taken.shantenBefore - taken.shantenAfter) * 10,
     replayable: true,
   }
@@ -463,7 +527,11 @@ const shantenWord = (n: number): string =>
  */
 export function scanRound(input: ReviewInput): RoundScan {
   const { log, seat } = input
-  const cursor = new SnapshotCursor(input.snapshots)
+  // One walk, shared with the UI: the hand a moment is graded against is the
+  // same hand the replayed board will draw. Two implementations of "which hand
+  // goes with which turn" would eventually disagree, and the picture
+  // contradicting the verdict above it is the worst failure this could have.
+  const hands = handsByDecision(log, seat, input.snapshots)
   const moments: Moment[] = []
   const degraded: string[] = []
 
@@ -474,7 +542,7 @@ export function scanRound(input: ReviewInput): RoundScan {
     const turn = turnAt(log, i)
 
     if (a.type === 'discard') {
-      const snap = cursor.take('discard', board, seat, a.tile)
+      const snap = hands.get(i)
       if (!snap) {
         degraded.push(`turn ${turn}: no hand captured for your discard, graded on public facts only`)
         const dealtIn = windowAfter(log, i).some((x) => x.type === 'claim' && x.claim === 'win')
@@ -491,6 +559,7 @@ export function scanRound(input: ReviewInput): RoundScan {
             `You discarded the ${tileName(a.tile)} on turn ${turn} — ${visibleOnTable(replayTo(log, i + 1), a.tile)} of 4 visible.`,
           ],
           better: null,
+          leak: dealtIn ? 'dealtIn' : null,
           weight: dealtIn ? 100 : 0,
           // The public board still replays; only the hand row is missing.
           replayable: false,
@@ -502,7 +571,7 @@ export function scanRound(input: ReviewInput): RoundScan {
     }
 
     if (a.type === 'pass') {
-      const snap = cursor.take('claims', board, seat, null)
+      const snap = hands.get(i)
       if (!snap) continue // a pass with no recoverable hand teaches nothing
       const m = gradePass(input, i, board, snap)
       if (m) moments.push(m)
@@ -510,7 +579,6 @@ export function scanRound(input: ReviewInput): RoundScan {
     }
 
     if (a.type === 'claim') {
-      cursor.take('claims', board, seat, null) // keep the cursor aligned
       if (a.claim === 'win') {
         moments.push({
           index: i,
@@ -521,6 +589,7 @@ export function scanRound(input: ReviewInput): RoundScan {
           headline: `You won on ${capitalise(seatName(input, board.pending?.from ?? seat))}'s ${board.pending ? tileName(board.pending.tile) : 'discard'}.`,
           facts: [`You took the win on turn ${turn}.`],
           better: null,
+          leak: null,
           weight: 50,
           replayable: true,
         })
@@ -538,6 +607,7 @@ export function scanRound(input: ReviewInput): RoundScan {
         headline: 'You won on your own draw.',
         facts: [`Self-drawn on turn ${turn}.`],
         better: null,
+        leak: null,
         weight: 50,
         replayable: true,
       })

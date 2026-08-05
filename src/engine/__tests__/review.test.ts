@@ -12,8 +12,8 @@ import { applyAction, createGame, legalActions, playerView, type Action, type Ga
 import { rankDiscards } from '../analysis'
 import { makeRng } from '../rng'
 import { replayTo, visibleOnTable } from '../replay'
-import { hand } from '../tiles'
-import { pickShortlist, scanRound, type HandSnapshot, type Moment, type ReviewInput } from '../review'
+import { hand, sortTiles } from '../tiles'
+import { handsByDecision, pickShortlist, scanRound, type HandSnapshot, type Moment, type ReviewInput } from '../review'
 import { SEATS, type Seat } from '../types'
 
 const RULES = { faanMinimum: 0, flowers: true, faanCap: null } as const
@@ -484,6 +484,50 @@ describe('degrading instead of guessing', () => {
   })
 })
 
+describe('handsByDecision', () => {
+  it.each(SEEDS)('returns the hand the engine really held at that turn (seed %s)', (seed) => {
+    // The UI draws the board from this, and the grader grades from it. If it
+    // ever returns a hand the seat did not hold, the replayed picture silently
+    // contradicts the verdict printed above it.
+    const { input, states } = playRound(seed)
+    const hands = handsByDecision(input.log, input.seat, input.snapshots)
+    expect(hands.size).toBeGreaterThan(0)
+    for (const [index, snap] of hands) {
+      expect(sortTiles([...snap.concealed]), `index ${index}`).toEqual(
+        sortTiles([...states[index].hands[input.seat]]),
+      )
+      expect(snap.wallCount).toBe(playerView(states[index], input.seat).wallCount)
+    }
+  })
+
+  it('covers every decision the scanner graded, at the same indices', () => {
+    // One walk feeds both. If they ever diverge, a moment card opens on a board
+    // with no hand while its verdict claims to know what was held.
+    for (const seed of SEEDS) {
+      const { input } = playRound(seed)
+      const hands = handsByDecision(input.log, input.seat, input.snapshots)
+      for (const m of scanRound(input).moments) {
+        if (!m.replayable || m.kind === 'win') continue
+        expect(hands.has(m.index), `seed ${seed}, moment at ${m.index}`).toBe(true)
+      }
+    }
+  })
+
+  it('returns nothing rather than guessing when no hands were captured', () => {
+    const { input } = playRound('nohands')
+    expect(handsByDecision(input.log, input.seat, []).size).toBe(0)
+    expect(handsByDecision(input.log, input.seat, undefined).size).toBe(0)
+  })
+
+  it('only ever maps this seat’s own decisions', () => {
+    const { input } = playRound('ownonly')
+    for (const index of handsByDecision(input.log, input.seat, input.snapshots).keys()) {
+      expect(input.log[index].seat).toBe(input.seat)
+      expect(['discard', 'pass', 'claim']).toContain(input.log[index].type)
+    }
+  })
+})
+
 describe('the round summary', () => {
   it.each(SEEDS)('states the real outcome and real counts (seed %s)', (seed) => {
     const { input, final } = playRound(seed)
@@ -507,6 +551,7 @@ function moment(over: Partial<Moment> & Pick<Moment, 'index' | 'turn' | 'weight'
     headline: '',
     facts: [],
     better: null,
+    leak: null,
     replayable: true,
     ...over,
   }
