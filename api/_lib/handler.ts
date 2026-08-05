@@ -7,9 +7,26 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { streamCompletion } from './anthropic'
 import { makeLimiter, sameOrigin } from './limiter'
 
+export interface BuiltPrompt {
+  system: string
+  prompt: string
+  /**
+   * Extra fields merged into the JSON response alongside `text`.
+   *
+   * The review needs this: the ENGINE picks the moments and computes their
+   * facts server-side, and the client has to render those same moments as cards
+   * that the model's sentences attach to. Sending the shortlist back is what
+   * lets the panel line the two up — without it the client would have to
+   * re-derive the shortlist and could disagree with the prompt the model saw.
+   *
+   * Server-computed only. Nothing from the request body is echoed here.
+   */
+  meta?: Record<string, unknown>
+}
+
 export interface EndpointConfig {
   /** Validate the body and build the full prompt server-side, or null to reject. */
-  buildPrompt: (body: unknown) => { system: string; prompt: string } | null
+  buildPrompt: (body: unknown) => BuiltPrompt | null
   model: string
   fallbackModel?: string
   maxTokens: number
@@ -170,7 +187,7 @@ export function createHandler(cfg: EndpointConfig) {
         res.status(502).json({ error: 'the coach returned an empty answer' })
         return
       }
-      res.status(200).json({ text: full, model: outcome.model })
+      res.status(200).json({ ...(built.meta ?? {}), text: full, model: outcome.model })
     } catch {
       // Never leak internals (or the key) into an error response. And never try
       // to set a status once the response has started streaming — that throws

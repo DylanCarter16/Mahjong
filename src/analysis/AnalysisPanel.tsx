@@ -6,6 +6,7 @@ import type { TileId } from '../engine/types'
 import { TileView } from '../ui/TileView'
 import type { FinishedInfo } from '../ui/useGame'
 import { COACH_TIMEOUT_MS, requestCoach, requestReview, type AnalysisResult } from './client'
+import { ReviewOutput } from './ReviewOutput'
 
 /**
  * Gap between MANUAL coach requests — a guard on the shared key's budget, not
@@ -233,12 +234,29 @@ export function AnalysisPanel({
     const ctl = new AbortController()
     inFlight.current = { key: 'review', ctl }
     lastRun.current = 'review'
-    const r = await requestReview(finished.log, finished.result, {
-      ...(byoKey ? { byoKey } : {}),
-      ...(roomCode ? { roomCode } : {}),
-      signal: ctl.signal,
-      onDelta: setStreamText,
-    })
+    const r = await requestReview(
+      {
+        log: finished.log,
+        result: finished.result,
+        // Lets the SERVER run the decision-point scanner: it picks the moments
+        // and computes the numbers, and the model only explains them. Without
+        // the captured hands the server falls back to the whole-log prompt, so
+        // an unobserved round still gets a review — just a vaguer one.
+        scan: {
+          seat: view.seat,
+          roundWind: view.roundWind,
+          seatWinds: view.seatWinds,
+          faanMinimum: view.faanMinimum,
+          snapshots: finished.snapshots,
+        },
+      },
+      {
+        ...(byoKey ? { byoKey } : {}),
+        ...(roomCode ? { roomCode } : {}),
+        signal: ctl.signal,
+        onDelta: setStreamText,
+      },
+    )
     if (!(r.ok === false && r.error === 'cancelled')) setResult(r)
     if (r.ok === false && r.error !== 'cancelled') clearCooldown()
     setBusy(false)
@@ -453,7 +471,14 @@ export function AnalysisPanel({
           )}
           {!failed && shownText && (
             <>
-              {shownText}
+              {/* A review that came back with an engine-graded shortlist renders
+                  as moments; everything else (the coach, and a review that fell
+                  back to the whole-log prompt) is still prose. */}
+              {result?.ok && result.review ? (
+                <ReviewOutput review={result.review} text={result.text} />
+              ) : (
+                shownText
+              )}
               {result?.ok && result.model && (
                 <div className="mt-2 text-right text-[0.65rem] text-emerald-400/60">{result.model}</div>
               )}

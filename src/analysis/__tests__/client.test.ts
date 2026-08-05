@@ -21,7 +21,7 @@ describe('requestReview', () => {
           init.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')))
         }),
     )
-    const r = await requestReview(log, null, { timeoutMs: 30 })
+    const r = await requestReview({ log, result: null }, { timeoutMs: 30 })
     expect(r.ok).toBe(false)
     expect(r).toMatchObject({ timedOut: true })
     expect((r as { error: string }).error).toMatch(/too long/i)
@@ -36,7 +36,7 @@ describe('requestReview', () => {
         }),
     )
     const ctl = new AbortController()
-    const p = requestReview(log, null, { signal: ctl.signal, timeoutMs: 10_000 })
+    const p = requestReview({ log, result: null }, { signal: ctl.signal, timeoutMs: 10_000 })
     ctl.abort()
     const r = await p
     expect(r).toEqual({ ok: false, error: 'cancelled' })
@@ -50,7 +50,7 @@ describe('requestReview', () => {
         json: () => Promise.resolve({ error: 'the coach took too long to answer' }),
       }),
     )
-    const r = await requestReview(log, null, {})
+    const r = await requestReview({ log, result: null }, {})
     expect(r).toEqual({ ok: false, error: 'the coach took too long to answer' })
   })
 
@@ -62,7 +62,7 @@ describe('requestReview', () => {
         json: () => Promise.resolve({ text: '1. Keep your safe tiles.', model: 'test-model' }),
       }),
     )
-    const r = await requestReview(log, null, {})
+    const r = await requestReview({ log, result: null }, {})
     expect(r).toEqual({ ok: true, text: '1. Keep your safe tiles.', model: 'test-model' })
   })
 })

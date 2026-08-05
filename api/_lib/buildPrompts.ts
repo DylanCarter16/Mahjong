@@ -5,10 +5,12 @@
 
 import { claimAnalysis, rankDiscards, readOpponents, type ClaimEval } from '../../src/engine/analysis'
 import type { PlayerView } from '../../src/engine/game'
+import { scanRound, type RoundScan } from '../../src/engine/review'
 import { shanten } from '../../src/engine/shanten'
 import { tileName } from '../../src/engine/tiles'
-import { postRoundPrompt } from '../../src/analysis/prompts'
+import { momentReviewPrompt, postRoundPrompt } from '../../src/analysis/prompts'
 import { serialiseLog } from '../../src/analysis/serialise'
+import type { BuiltPrompt } from './handler'
 import { validatePlayerView, validateReview } from './validate'
 
 // The facts block below feeds the model internal tile codes (m9, wW, dW); these
@@ -107,7 +109,7 @@ export function claimFacts(view: PlayerView, options: ClaimEval[]): string {
   ].join('\n')
 }
 
-export function buildCoachPrompt(body: unknown): { system: string; prompt: string } | null {
+export function buildCoachPrompt(body: unknown): BuiltPrompt | null {
   if (typeof body !== 'object' || body === null) return null
   const view = validatePlayerView((body as Record<string, unknown>).view)
   if (!view) return null
@@ -139,8 +141,61 @@ In 60 words or fewer: name the best discard and why (use the engine ranking), th
   }
 }
 
-export function buildReviewPrompt(body: unknown): { system: string; prompt: string } | null {
+/**
+ * The engine-graded shortlist, written out for the model.
+ *
+ * Everything here comes from scanRound — verdicts, counts, opponent reads, the
+ * better line — and every tile is already in plain English, so unlike the coach
+ * facts block this one contains no internal codes for the model to translate.
+ * Exported for tests.
+ */
+export function reviewFacts(scan: RoundScan): string {
+  const lines: string[] = [`ROUND (engine): ${scan.summary}`, '', 'MOMENTS (engine-graded):']
+  scan.shortlist.forEach((m, i) => {
+    lines.push(`M${i + 1} [${m.verdict}] turn ${m.turn}: ${m.headline}`)
+    for (const f of m.facts) lines.push(`  - ${f}`)
+    if (m.better) lines.push(`  - The better discard was the ${tileName(m.better.tile)}. ${m.better.why}`)
+  })
+  return lines.join('\n')
+}
+
+export function buildReviewPrompt(body: unknown): BuiltPrompt | null {
   const payload = validateReview(body)
   if (!payload) return null
+
+  // With the scan inputs present, the engine picks the moments and supplies the
+  // numbers. Without them — an older client, or a round whose result never
+  // arrived — fall back to handing over the log, which is what this did before.
+  if (payload.scan && payload.result) {
+    const scan = scanRound({
+      seat: payload.scan.seat,
+      log: payload.log,
+      result: payload.result,
+      roundWind: payload.scan.roundWind,
+      seatWinds: payload.scan.seatWinds,
+      faanMinimum: payload.scan.faanMinimum,
+      snapshots: payload.scan.snapshots,
+    })
+    if (scan.shortlist.length > 0) {
+      return {
+        system: REVIEW_SYSTEM,
+        prompt: momentReviewPrompt(reviewFacts(scan), scan.shortlist.length),
+        // The shortlist goes back with the answer so the panel renders the same
+        // moments the model was asked about, in the same order. `weight` is
+        // shortlisting bookkeeping and stays here.
+        meta: {
+          review: {
+            summary: scan.summary,
+            tally: scan.tally,
+            degraded: scan.degraded,
+            moments: scan.shortlist.map(({ weight: _weight, ...m }) => m),
+          },
+        },
+      }
+    }
+    // A round with nothing worth flagging is a real outcome, not a failure —
+    // but there is nothing for the moment format to narrate, so use the log.
+  }
+
   return { system: REVIEW_SYSTEM, prompt: postRoundPrompt(serialiseLog(payload.log, payload.result)) }
 }

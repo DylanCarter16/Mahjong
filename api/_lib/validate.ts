@@ -5,6 +5,7 @@
 
 import { FAN_PATTERN_NAMES } from '../../src/engine/fan'
 import type { Action, PlayerView, RoundResult } from '../../src/engine/game'
+import type { HandSnapshot } from '../../src/engine/review'
 import { ALL_PLAY_KINDS, BONUS_KINDS } from '../../src/engine/tiles'
 import type { Meld, Seat, TileId, Wind } from '../../src/engine/types'
 
@@ -138,6 +139,53 @@ function action(x: unknown): Action | null {
 export interface ReviewPayload {
   log: Action[]
   result: RoundResult | null
+  /**
+   * Everything the decision-point scanner needs beyond the log. Present when
+   * the client is new enough to send it; absent falls back to handing the model
+   * the whole log, which is what the review did before.
+   */
+  scan?: {
+    seat: Seat
+    roundWind: Wind
+    seatWinds: Record<Seat, Wind>
+    faanMinimum: 0 | 1 | 3
+    snapshots: HandSnapshot[]
+  }
+}
+
+/**
+ * The player's own hands, posted back with their own review. No hidden
+ * information is disclosed by this — it is this client's own view stream — but
+ * it is still client input that reaches a prompt, so it is validated to the
+ * same standard as everything else here: allowlisted tiles, bounded sizes,
+ * unknown fields dropped.
+ */
+function handSnapshot(x: unknown): HandSnapshot | null {
+  if (!isObj(x)) return null
+  if (typeof x.seq !== 'number' || !Number.isInteger(x.seq) || x.seq < 0 || x.seq > 100_000) return null
+  if (x.phase !== 'discard' && x.phase !== 'claims') return null
+  const concealed = tileArray(x.concealed, 14)
+  if (!concealed) return null
+  if (typeof x.wallCount !== 'number' || x.wallCount < 0 || x.wallCount > 130) return null
+  return { seq: x.seq, phase: x.phase, concealed, wallCount: Math.floor(x.wallCount) }
+}
+
+/** null = absent (fine, use the old path); undefined = present but malformed. */
+function reviewScan(x: unknown): ReviewPayload['scan'] | null | undefined {
+  if (x === undefined || x === null) return null
+  if (!isObj(x)) return undefined
+  if (!isSeat(x.seat) || !isWind(x.roundWind)) return undefined
+  const seatWinds = seatRecord(x.seatWinds, (v) => (isWind(v) ? v : null))
+  if (!seatWinds) return undefined
+  if (x.faanMinimum !== 0 && x.faanMinimum !== 1 && x.faanMinimum !== 3) return undefined
+  if (!Array.isArray(x.snapshots) || x.snapshots.length > 300) return undefined
+  const snapshots: HandSnapshot[] = []
+  for (const raw of x.snapshots) {
+    const s = handSnapshot(raw)
+    if (!s) return undefined
+    snapshots.push(s)
+  }
+  return { seat: x.seat, roundWind: x.roundWind, seatWinds, faanMinimum: x.faanMinimum, snapshots }
 }
 
 /** Validate + sanitise a posted round review (action log + result). */
@@ -176,5 +224,7 @@ export function validateReview(x: unknown): ReviewPayload | null {
       }
     } else return null
   }
-  return { log, result }
+  const scan = reviewScan(x.scan)
+  if (scan === undefined) return null // present but off-shape: reject, don't guess
+  return scan === null ? { log, result } : { log, result, scan }
 }
