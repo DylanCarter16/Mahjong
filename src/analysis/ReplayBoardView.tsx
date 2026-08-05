@@ -102,14 +102,21 @@ export function ReplayBoardView({
                 <MeldRow melds={board.melds[s]} numbered={numbered} small />
               </div>
             )}
-            <TilePool
-              tiles={board.discards[s]}
-              numbered={numbered}
-              size="xs"
-              perRow={10}
-              highlight={highlight}
-              pending={board.pending?.from === s ? board.pending.tile : null}
-            />
+            {/* An empty pool still reserves two rows inside TilePool, and four
+                of those early in a round push the hand off a phone screen.
+                Nothing discarded yet is one line of text, not a gap. */}
+            {board.discards[s].length === 0 && board.pending?.from !== s ? (
+              <p className="text-[0.65rem] text-emerald-400/40">nothing discarded yet</p>
+            ) : (
+              <TilePool
+                tiles={board.discards[s]}
+                numbered={numbered}
+                size="xs"
+                perRow={10}
+                highlight={highlight}
+                pending={board.pending?.from === s ? board.pending.tile : null}
+              />
+            )}
           </div>
         ))}
       </div>

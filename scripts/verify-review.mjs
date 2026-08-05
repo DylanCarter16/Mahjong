@@ -95,7 +95,11 @@ function stubReview(body) {
 const TILE = /of Characters|of Circles|of Bamboo|Wind|Dragon/
 
 async function playToEnd(page, body) {
-  for (let step = 0; step < 900; step++) {
+  // Budget: a solo round is ~60-100 actions and the runner paces bots in REAL
+  // time (300ms draw, 650ms bot), so a round can take two minutes of wall clock
+  // before anything has gone wrong. Cutting it finer than this reports "the
+  // round never finished" for rounds that were merely slow.
+  for (let step = 0; step < 2000; step++) {
     // The table re-renders constantly while bots act, so element handles detach
     // and evaluation contexts get torn down under us. None of that is a product
     // bug — swallow it and take another lap rather than failing the whole run.
@@ -112,7 +116,9 @@ async function playToEnd(page, body) {
 async function tick(page, body) {
   {
     const text = await body()
-    if (/Review this round|Wall exhausted/.test(text)) return true
+    // "Round over" is the table's own marker and survives the win dialog being
+    // dismissed; the other two are the dialog itself.
+    if (/Review this round|Wall exhausted|Round over/.test(text)) return true
     if (/claim it\?/.test(text)) {
       const pass = page.getByRole('button', { name: 'Pass' })
       if (await pass.count()) await pass.first().click({ timeout: 2000 })
@@ -130,7 +136,7 @@ async function tick(page, body) {
         return false
       }
     }
-    await page.waitForTimeout(180)
+    await page.waitForTimeout(120)
     return false
   }
 }
@@ -164,15 +170,31 @@ async function openReview(width) {
   await page.waitForFunction(() => /tiles left/.test(document.body.innerText), null, { timeout: 20000 })
 
   const finished = await playToEnd(page, body)
-  if (!finished) return { page, ctx, errors, body, posted, reached: false }
+  if (!finished) {
+    // Say WHICH thing went wrong. "Never reached the review" covers two very
+    // different failures and guessing between them wastes a ten-minute run.
+    console.error(`  (round never finished; last screen: ${(await body()).slice(-160).replace(/\n/g, ' | ')})`)
+    return { page, ctx, errors, body, posted, reached: false }
+  }
 
   const dismiss = page.getByRole('button', { name: /Review this round/ })
   if (await dismiss.count()) {
     await dismiss.click()
     await page.waitForTimeout(400)
   }
+  // The panel auto-opens at round end; if it didn't, open it by hand.
+  if (!(await page.getByRole('button', { name: 'Review that round' }).count())) {
+    const launcher = page.getByRole('button', { name: /AI coach|Discard table/i })
+    if (await launcher.count()) {
+      await launcher.first().click()
+      await page.waitForTimeout(400)
+    }
+  }
   const btn = page.getByRole('button', { name: 'Review that round' })
-  if (!(await btn.count())) return { page, ctx, errors, body, posted, reached: false }
+  if (!(await btn.count())) {
+    console.error(`  (no "Review that round" button; last screen: ${(await body()).slice(-160).replace(/\n/g, ' | ')})`)
+    return { page, ctx, errors, body, posted, reached: false }
+  }
   await btn.click()
   await page.waitForTimeout(1200)
   return { page, ctx, errors, body, posted, reached: true }
@@ -282,6 +304,46 @@ const overflow = (page) =>
 
     if (errors.length) fail(`console errors: ${errors.slice(0, 3).join(' | ')}`)
     else ok('no console errors through the review flow')
+
+    // ------------------------------------------------- every width --
+    // Resized on the page that already has this round's review open, rather
+    // than replaying a round per width. The layout is what is under test, and
+    // playing five more rounds to look at it made the script slow enough to
+    // fail for reasons that had nothing to do with the layout.
+    for (const width of WIDTHS) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.waitForTimeout(250)
+
+      if (await overflow(page)) fail(`${width}px: page overflows horizontally with the review closed`)
+      else ok(`${width}px: no horizontal overflow (closed)`)
+
+      await cards.first().click()
+      await page.waitForTimeout(350)
+      if (!/Your hand/.test(await body())) {
+        fail(`${width}px: the board did not open`)
+        continue
+      }
+      if (await overflow(page)) fail(`${width}px: the replayed board overflows horizontally`)
+      else ok(`${width}px: no horizontal overflow (board open)`)
+
+      const small = await page.evaluate(() => {
+        const bad = []
+        for (const el of document.querySelectorAll('button')) {
+          const r = el.getBoundingClientRect()
+          if (r.width === 0 || r.height === 0) continue
+          if (r.height < 44 && r.width < 44) {
+            bad.push(`${el.textContent?.trim().slice(0, 24)} ${Math.round(r.width)}x${Math.round(r.height)}`)
+          }
+        }
+        return bad
+      })
+      if (small.length === 0) ok(`${width}px: every visible control >=44px in a dimension`)
+      else fail(`${width}px: controls under 44px - ${small.slice(0, 3).join(', ')}`)
+
+      await page.screenshot({ path: `${OUT}/w-${width}.png`, fullPage: true })
+      await cards.first().click() // collapse before the next width
+      await page.waitForTimeout(200)
+    }
   }
   await ctx.close()
 }
@@ -299,6 +361,17 @@ const overflow = (page) =>
   })
   page.on('pageerror', (e) => errors.push(String(e)))
   const body = () => page.evaluate(() => document.body.innerText)
+
+  // This block runs WITHOUT a key, and opening the coach panel fires a prefetch.
+  // Stub every model call so the run measures the patterns layer rather than
+  // the absence of an API key.
+  await page.route('**/api/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ text: 'stubbed coach answer', model: 'stub-model' }),
+    }),
+  )
 
   await page.goto(APP, { waitUntil: 'networkidle' })
   await page.getByRole('button', { name: 'Start solo game' }).click()
@@ -379,43 +452,6 @@ const overflow = (page) =>
 
   if (errors.length) fail(`console errors in the patterns flow: ${errors.slice(0, 2).join(' | ')}`)
   else ok('no console errors in the patterns flow')
-  await ctx.close()
-}
-
-// --------------------------------------------------------- every width --
-for (const width of WIDTHS) {
-  const { page, ctx, body, reached } = await openReview(width)
-  if (!reached) {
-    fail(`${width}px: never reached the review`)
-    await ctx.close()
-    continue
-  }
-  if (await overflow(page)) fail(`${width}px: page overflows horizontally with the review closed`)
-  else ok(`${width}px: no horizontal overflow (closed)`)
-
-  const card = page.locator('li button[aria-expanded]').first()
-  if (await card.count()) {
-    await card.click()
-    await page.waitForTimeout(400)
-    if (await overflow(page)) fail(`${width}px: the replayed board overflows horizontally`)
-    else ok(`${width}px: no horizontal overflow (board open)`)
-
-    // Every control in the open review must still be thumb-sized.
-    const small = await page.evaluate(() => {
-      const bad = []
-      for (const el of document.querySelectorAll('button')) {
-        const r = el.getBoundingClientRect()
-        if (r.width === 0 || r.height === 0) continue
-        if (r.height < 44 && r.width < 44) bad.push(`${el.textContent?.trim().slice(0, 24)} ${Math.round(r.width)}x${Math.round(r.height)}`)
-      }
-      return bad
-    })
-    if (small.length === 0) ok(`${width}px: every visible control ≥44px in a dimension`)
-    else fail(`${width}px: controls under 44px — ${small.slice(0, 3).join(', ')}`)
-
-    await page.screenshot({ path: `${OUT}/w-${width}.png`, fullPage: true })
-    if (!/Your hand/.test(await body())) fail(`${width}px: the board did not open`)
-  }
   await ctx.close()
 }
 

@@ -32,6 +32,11 @@ if (!process.env.ANTHROPIC_API_KEY) {
 
 const RULES = { faanMinimum: 0 as const, flowers: true, faanCap: null }
 
+interface Played {
+  finished: { result: RoundResult; log: Action[] } | null
+  view: PlayerView | null
+}
+
 /** Play one solo round the way the app does, recording this seat's hands. */
 function playRound() {
   const clock = new FakeClock()
@@ -42,29 +47,30 @@ function playRound() {
   const rng = makeRng(`live-${Date.now()}`)
   const recorder = new SnapshotRecorder()
   const queue: Action[] = []
-  let finished: { result: RoundResult; log: Action[] } | null = null
-  let lastView: PlayerView | null = null
+  // A holder, not two locals: assignments happen inside the message callback,
+  // so narrowing after the loop would otherwise conclude they are still null.
+  const out: Played = { finished: null, view: null }
 
   room.conn.onMessage((m) => {
     if (m.type === 'view') {
       recorder.observe(m.seq, m.view, m.match.roundNo)
-      lastView = m.view
+      out.view = m.view
       if (m.view.legal.length > 0) queue.push(botAction(m.view, 'easy', rng) as Action)
     } else if (m.type === 'finished') {
-      finished = { result: m.result, log: [...m.log] }
+      out.finished = { result: m.result, log: [...m.log] }
     }
   })
 
   room.runner.start()
   let guard = 0
-  while (finished === null && guard++ < 4000) {
+  while (out.finished === null && guard++ < 4000) {
     const next = queue.shift()
     if (next) room.conn.send({ type: 'intent', action: next })
     else clock.advance(1000)
   }
   room.runner.stop()
-  if (!finished || !lastView) throw new Error('the round never finished')
-  return { finished, view: lastView as PlayerView, snapshots: recorder.take() }
+  if (!out.finished || !out.view) throw new Error('the round never finished')
+  return { finished: out.finished, view: out.view, snapshots: recorder.take() }
 }
 
 const { finished, view, snapshots } = playRound()

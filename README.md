@@ -222,10 +222,30 @@ carry a small ⏱ badge and a two-second count-in — no modal between questions
 Three actions, all rate-limited and error-safe: **Analyse my hand** (realistic
 faan target, best discard, one defensive note), **Should I claim it?** (whether
 to pung/chow/kong a discard — single-player only, since a multiplayer claim
-window is too short for a round trip), and **Review that round** (three
-improvements tied to specific turns from the action log). Coach requests
+window is too short for a round trip), and **Review that round**. Coach requests
 originate client-side and hit the proxy directly; the game server never touches
-the key. The prompt is built server-side from a validated `PlayerView` — no
+the key.
+
+The round review is a **replayable coach**, not a wall of prose. The engine
+scans the log for your own decisions, grades each on two measured costs (shanten
+given up, and safety left on the table versus the safest equally fast discard),
+and shortlists the three or four most instructive. Each becomes a tappable card
+with an engine-computed verdict badge — mistake / loose / fine / sharp — and
+tapping it **rebuilds the table exactly as it stood at that turn**: every pool in
+draw order, exposed melds, wall count, your own hand, with the tile in question
+lit up wherever it appears and the better discard ringed in your hand. You can
+step ±1 turn to see what led in and what followed. The model's job shrinks to a
+sentence or two per moment; it never picks the moments and never computes a
+number. Across rounds, a **patterns** view names habits that recur, with the
+denominator shown, and points back at the lesson concepts that drill them.
+
+Concealed hands are hidden information and never leave the server, so a
+concealed hand cannot be recovered from a log after the fact. Instead the client
+remembers its OWN hand from the view stream as the round is played
+(`src/analysis/snapshots.ts`) and posts it back with its own review request; the
+public half of the board is folded out of the action log exactly
+(`src/engine/replay.ts`). A turn whose hand cannot be recovered degrades to the
+public table plus a note, rather than a guess. The prompt is built server-side from a validated `PlayerView` — no
 client-supplied prompt/model/messages; even the claim-vs-discard *mode* is
 derived from the validated state's own phase.
 
@@ -320,6 +340,15 @@ suites are the correctness signal for the whole app; the UI just renders a
 `npm run verify:ui` drives the real app in a browser (mobile viewport) as a
 self-check: menu → solo → create → lobby → table, asserting a11y labels, ≥44px
 touch targets, and no console errors. (Needs `playwright-core` + a Chromium.)
+Siblings cover the surfaces a unit test cannot see: `verify:review` plays a real
+round and drives the post-round review — moment cards, the replayed board,
+turn stepping, the patterns view — at 375/390/430/768/1280 with the model call
+stubbed; `verify:coach`, `verify:settings`, `verify:tiles`, `verify:lessons`,
+and `verify:responsive` do the same for their areas.
+
+`npx tsx scripts/live-review.ts` is the one check that needs a real key: it
+plays a round, calls the real review handler end to end, and fails if the
+answer does not parse back into every moment.
 
 ## Roadmap
 

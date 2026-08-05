@@ -188,7 +188,11 @@ await page.route('**/api/review', (route) =>
 )
 const TILE = /of Characters|of Circles|of Bamboo|Wind|Dragon/
 let done = false
-for (let step = 0; step < 900 && !done; step++) {
+// Budget: a multiplayer round is paced by the SERVER (claim windows, bot
+// delays) and runs over a socket, so two minutes of wall clock is a normal
+// round, not a stuck one. Too tight a budget reports "the round never
+// finished" for a round that was merely slow.
+for (let step = 0; step < 2500 && !done; step++) {
   const text = await body()
   if (/Review this round|Wall exhausted|Waiting for host/.test(text)) { done = true; break }
   if (/claim it\?/.test(text)) {
