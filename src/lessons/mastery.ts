@@ -1,6 +1,7 @@
 // Mastery + spaced repetition (SM-2-lite / Leitner boxes). Pure functions —
 // the UI hands in `new Date()`, tests hand in fixed clocks.
 
+import type { RoundRecord } from '../analysis/leaks'
 import { CONCEPTS, conceptById, type ConceptId } from './concepts'
 
 export const INTERVALS = [0, 1, 2, 4, 8, 16] // days until due, per box
@@ -37,6 +38,13 @@ export interface ProgressState {
   today: { day: string; count: number }
   answers: AnswerRecord[]
   calibration: Record<Confidence, { right: number; total: number }>
+  /**
+   * Graded results of recent PLAYED rounds, for the review's cross-round
+   * patterns view. Compact counts, never a log. Added after v1 shipped, so it
+   * is written by new code and defaults to empty when an older save is loaded —
+   * no version bump needed for a purely additive field.
+   */
+  rounds: RoundRecord[]
 }
 
 export const emptyProgress = (): ProgressState => ({
@@ -51,6 +59,7 @@ export const emptyProgress = (): ProgressState => ({
     sure: { right: 0, total: 0 },
     certain: { right: 0, total: 0 },
   },
+  rounds: [],
 })
 
 const dayOf = (d: Date) => d.toISOString().slice(0, 10)

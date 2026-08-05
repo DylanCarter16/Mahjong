@@ -9,6 +9,8 @@ import type { Action, PlayerView, RoundResult, RuleConfig } from '../engine/game
 import type { Seat } from '../engine/types'
 import type { MatchInfo } from '../room/protocol'
 import { createSoloRoom, type SoloRoom } from '../room/solo'
+import { SnapshotRecorder } from '../analysis/snapshots'
+import type { HandSnapshot } from '../engine/review'
 
 export const HUMAN: Seat = 0
 
@@ -59,6 +61,14 @@ export type { MatchInfo }
 export interface FinishedInfo {
   result: RoundResult
   log: Action[]
+  /**
+   * This player's own hand at each of their decisions, collected from the view
+   * stream as the round was played. The log records that a seat drew, never
+   * what it drew, so a concealed hand cannot be recovered afterwards — see
+   * analysis/snapshots.ts. Empty when the round wasn't observed from the start
+   * (a mid-round join, or a reload), which the review degrades around.
+   */
+  snapshots: HandSnapshot[]
 }
 
 const FRESH_MATCH: MatchInfo = {
@@ -88,14 +98,20 @@ export function useGame(settings: Settings) {
   const [match, setMatch] = useState<MatchInfo>(FRESH_MATCH)
   const [finished, setFinished] = useState<FinishedInfo | null>(null)
 
+  // Collects this seat's hands as the round is played, so the post-round review
+  // can grade the decisions. Keyed on match.roundNo, so a new round starts a
+  // fresh set without any explicit reset call.
+  const recorder = useRef(new SnapshotRecorder())
+
   useEffect(() => {
     const unsubscribe = room.conn.onMessage((m) => {
       if (m.type === 'view') {
+        recorder.current.observe(m.seq, m.view, m.match.roundNo)
         setView(m.view)
         setMatch(m.match)
         if (m.view.phase !== 'finished') setFinished(null)
       } else if (m.type === 'finished') {
-        setFinished({ result: m.result, log: m.log })
+        setFinished({ result: m.result, log: m.log, snapshots: recorder.current.take() })
         setMatch(m.match)
       }
     })

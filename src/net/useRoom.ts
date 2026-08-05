@@ -14,6 +14,7 @@ import {
   type ConnStatus,
   type RemoteRoomHandle,
 } from './RemoteRoom'
+import { SnapshotRecorder } from '../analysis/snapshots'
 import type { HouseRules, MatchInfo, RoomInfo } from '../room/protocol'
 import type { FinishedInfo } from '../ui/useGame'
 
@@ -48,6 +49,8 @@ export interface JoinOptions {
 
 export function useRoom(opts: JoinOptions | null): RoomControls {
   const handleRef = useRef<RemoteRoomHandle | null>(null)
+  // See useGame: this seat's own hands, kept for the post-round review.
+  const recorder = useRef(new SnapshotRecorder())
   const [state, setState] = useState<RoomState>({
     status: 'connecting',
     room: null,
@@ -74,6 +77,10 @@ export function useRoom(opts: JoinOptions | null): RoomControls {
         setState((s) => ({ ...s, status, statusDetail: detail })),
       )
       h.onMessage((msg) => {
+        // Record BEFORE setState: a state updater must stay pure, and React
+        // may call it more than once. The recorder dedupes on seq anyway, but
+        // the right place for a side effect is out here.
+        if (msg.type === 'view') recorder.current.observe(msg.seq, msg.view, msg.match.roundNo)
         setState((s) => {
           switch (msg.type) {
             case 'joined':
@@ -88,7 +95,11 @@ export function useRoom(opts: JoinOptions | null): RoomControls {
                 finished: msg.view.phase === 'finished' ? s.finished : null,
               }
             case 'finished':
-              return { ...s, finished: { result: msg.result, log: msg.log }, match: msg.match }
+              return {
+                ...s,
+                finished: { result: msg.result, log: msg.log, snapshots: recorder.current.take() },
+                match: msg.match,
+              }
             case 'rejected':
               // A lobby/intent rejection is informational; keep it out of the
               // fatal-error channel (that's for failed joins).

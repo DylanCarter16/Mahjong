@@ -3,6 +3,7 @@
 // The API key NEVER goes through here — storage is for lesson progress and
 // nothing secret.
 
+import type { RoundRecord } from '../analysis/leaks'
 import { conceptById, type ConceptId } from './concepts'
 import { emptyProgress, type AnswerRecord, type ConceptProgress, type ProgressState } from './mastery'
 
@@ -27,6 +28,20 @@ const str = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n))
 
 const MAX_ANSWERS = 5000
+/**
+ * Rounds kept for the patterns view. Enough to see a habit, few enough that the
+ * storage key stays small — patterns are about recent play, and a leak from
+ * forty games ago is not evidence about how you play now.
+ */
+export const MAX_ROUNDS = 40
+const LEAK_IDS = new Set<string>([
+  'dealtIn',
+  'fedThreat',
+  'looseDiscard',
+  'slowDiscard',
+  'missedClaim',
+  'passedWin',
+])
 
 function cleanConcepts(raw: unknown): Partial<Record<ConceptId, ConceptProgress>> {
   const out: Partial<Record<ConceptId, ConceptProgress>> = {}
@@ -66,6 +81,36 @@ function cleanAnswers(raw: unknown): AnswerRecord[] {
   return out
 }
 
+/**
+ * Played-round records. Same rebuild-from-primitives rule as everything else
+ * here: an imported file is untrusted, so leak keys are allowlisted against the
+ * engine's own set and every count is coerced to a finite number.
+ */
+function cleanRounds(raw: unknown): RoundRecord[] {
+  if (!Array.isArray(raw)) return []
+  const out: RoundRecord[] = []
+  for (const r of raw.slice(-MAX_ROUNDS)) {
+    if (!isObj(r)) continue
+    const leaks: RoundRecord['leaks'] = {}
+    if (isObj(r.leaks)) {
+      for (const key of Object.keys(r.leaks)) {
+        if (!LEAK_IDS.has(key)) continue // never assign an unknown key
+        const n = num(r.leaks[key])
+        if (n > 0) leaks[key as keyof RoundRecord['leaks']] = Math.floor(n)
+      }
+    }
+    out.push({
+      day: str(r.day).slice(0, 10),
+      discards: Math.max(0, Math.floor(num(r.discards))),
+      sharp: Math.max(0, Math.floor(num(r.sharp))),
+      loose: Math.max(0, Math.floor(num(r.loose))),
+      mistakes: Math.max(0, Math.floor(num(r.mistakes))),
+      leaks,
+    })
+  }
+  return out
+}
+
 function cleanCalibration(raw: unknown): ProgressState['calibration'] {
   const bucket = (b: unknown) => (isObj(b) ? { right: num(b.right), total: num(b.total) } : { right: 0, total: 0 })
   return { guess: bucket(isObj(raw) ? raw.guess : null), sure: bucket(isObj(raw) ? raw.sure : null), certain: bucket(isObj(raw) ? raw.certain : null) }
@@ -87,6 +132,7 @@ export function migrate(raw: unknown): ProgressState | null {
     today,
     answers: cleanAnswers(raw.answers),
     calibration: cleanCalibration(raw.calibration),
+    rounds: cleanRounds(raw.rounds),
   }
 }
 
@@ -116,4 +162,18 @@ export function importJSON(text: string): ProgressState | null {
   } catch {
     return null
   }
+}
+
+/**
+ * Append a played round's graded record.
+ *
+ * Read-modify-write against storage rather than against any in-memory state:
+ * the play tab and the lessons tab both own pieces of this key, and whichever
+ * writes last must not clobber what the other just added.
+ */
+export function appendRound(storage: StorageLike, record: RoundRecord): ProgressState {
+  const state = loadProgress(storage)
+  const next: ProgressState = { ...state, rounds: [...state.rounds, record].slice(-MAX_ROUNDS) }
+  saveProgress(storage, next)
+  return next
 }

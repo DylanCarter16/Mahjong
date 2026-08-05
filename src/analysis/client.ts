@@ -4,10 +4,24 @@
 // memory only, and skips the shared rate limit.
 
 import type { Action, PlayerView, RoundResult } from '../engine/game'
+import type { HandSnapshot, Moment, RoundScan } from '../engine/review'
+import type { Seat, Wind } from '../engine/types'
 import { cleanCoachText } from './coachText'
 
+/**
+ * The engine-graded shortlist the server built the prompt from, returned with
+ * the answer so the panel renders exactly the moments the model was asked
+ * about. Absent when the review fell back to the whole-log prompt.
+ */
+export interface ReviewMeta {
+  summary: string
+  tally: RoundScan['tally']
+  degraded: string[]
+  moments: Omit<Moment, 'weight'>[]
+}
+
 export type AnalysisResult =
-  | { ok: true; text: string; model?: string }
+  | { ok: true; text: string; model?: string; review?: ReviewMeta }
   | { ok: false; error: string; rateLimited?: boolean; timedOut?: boolean }
 
 /** Strip markdown code fences if the model wrapped its answer in them. */
@@ -51,8 +65,30 @@ const DEFAULT_TIMEOUT_MS = COACH_TIMEOUT_MS
 export const requestCoach = (view: PlayerView, opts: RequestOptions = {}) =>
   post('/api/coach', { view }, { timeoutMs: COACH_TIMEOUT_MS, ...opts })
 
-export const requestReview = (log: Action[], result: RoundResult | null, opts: RequestOptions = {}) =>
-  post('/api/review', { log, result }, { timeoutMs: REVIEW_TIMEOUT_MS, ...opts })
+/**
+ * Extra context that lets the SERVER run the decision-point scanner instead of
+ * handing the model a raw log. Optional: without it the review still works, it
+ * just falls back to the old whole-log prompt.
+ *
+ * `snapshots` are this player's own hands from their own view stream — nothing
+ * hidden, and nothing the server didn't send them in the first place.
+ */
+export interface ReviewScanInput {
+  seat: Seat
+  roundWind: Wind
+  seatWinds: Record<Seat, Wind>
+  faanMinimum: number
+  snapshots: HandSnapshot[]
+}
+
+export interface ReviewRequest {
+  log: Action[]
+  result: RoundResult | null
+  scan?: ReviewScanInput
+}
+
+export const requestReview = (req: ReviewRequest, opts: RequestOptions = {}) =>
+  post('/api/review', req, { timeoutMs: REVIEW_TIMEOUT_MS, ...opts })
 
 /**
  * One AbortController fed by both the caller's signal and our own timer, so we
@@ -109,14 +145,24 @@ async function post(path: string, body: unknown, opts: RequestOptions): Promise<
         error: 'The coach is rate-limited right now — try again in a moment.',
       }
     }
-    const data = (await res.json().catch(() => ({}))) as { text?: string; model?: string; error?: string }
+    const data = (await res.json().catch(() => ({}))) as {
+      text?: string
+      model?: string
+      error?: string
+      review?: ReviewMeta
+    }
     if (!res.ok) return { ok: false, error: data.error ?? `Coach error (HTTP ${res.status}).` }
     const text = cleanCoachText(stripFences(data.text ?? ''))
     if (!text) return { ok: false, error: 'Empty response from the coach.' }
     // Callers may render incrementally via onDelta; hand them the full text once
     // so the coach panel updates exactly as before.
     onDelta?.(text)
-    return { ok: true, text, ...(data.model ? { model: data.model } : {}) }
+    return {
+      ok: true,
+      text,
+      ...(data.model ? { model: data.model } : {}),
+      ...(data.review ? { review: data.review } : {}),
+    }
   } catch {
     if (guard.state.timedOut) {
       return { ok: false, error: 'The coach took too long to answer.', timedOut: true }

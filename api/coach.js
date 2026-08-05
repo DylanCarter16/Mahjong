@@ -465,6 +465,9 @@ function readOpponents(view) {
   return out;
 }
 
+// src/engine/replay.ts
+var LIVE_WALL_AT_DEAL = 144 - 14 - 53;
+
 // api/_lib/validate.ts
 var TILE_IDS = /* @__PURE__ */ new Set([...ALL_PLAY_KINDS, ...BONUS_KINDS]);
 var WINDS2 = /* @__PURE__ */ new Set(["E", "S", "W", "N"]);
@@ -893,7 +896,7 @@ function createHandler(cfg) {
         res.status(502).json({ error: "the coach returned an empty answer" });
         return;
       }
-      res.status(200).json({ text: full, model: outcome.model });
+      res.status(200).json({ ...built.meta ?? {}, text: full, model: outcome.model });
     } catch {
       if (!res.headersSent) {
         res.status(500).json({ error: "internal error" });

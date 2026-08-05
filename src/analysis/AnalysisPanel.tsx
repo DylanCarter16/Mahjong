@@ -6,6 +6,9 @@ import type { TileId } from '../engine/types'
 import { TileView } from '../ui/TileView'
 import type { FinishedInfo } from '../ui/useGame'
 import { COACH_TIMEOUT_MS, requestCoach, requestReview, type AnalysisResult } from './client'
+import { PatternsPanel } from './PatternsPanel'
+import { ReviewOutput } from './ReviewOutput'
+import { loadProgress } from '../lessons/persistence'
 
 /**
  * Gap between MANUAL coach requests — a guard on the shared key's budget, not
@@ -53,6 +56,7 @@ export function AnalysisPanel({
   coachEnabled = true,
   aidsEnabled = true,
   claimAdvice = false,
+  numberedTiles = true,
 }: {
   view: PlayerView
   /** Round-end disclosure (result + full log) — null while a round is live. */
@@ -80,6 +84,8 @@ export function AnalysisPanel({
    * table would be fine, but the ask was explicitly solo-only).
    */
   claimAdvice?: boolean
+  /** Rank overlays on tiles — the same display preference as the table. */
+  numberedTiles?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -87,6 +93,7 @@ export function AnalysisPanel({
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [cooldown, setCooldown] = useState(0)
   const [elapsed, setElapsed] = useState(0)
+  const [showPatterns, setShowPatterns] = useState(false)
   const lastManualCall = useRef(0)
   const inFlight = useRef<{ key: string; ctl: AbortController } | null>(null)
   const cache = useRef(new Map<string, string>())
@@ -96,6 +103,14 @@ export function AnalysisPanel({
   const myDiscardTurn = view.phase === 'discard' && view.turn === view.seat
   const roundOver = view.phase === 'finished' && finished !== null
   const key = viewKey(view)
+
+  // Read from storage rather than held in state: useRoundRecorder writes the
+  // round that just ended, and re-reading when the panel opens or the round
+  // finishes is what makes the newest round show up in the patterns.
+  const records = useMemo(
+    () => (open ? loadProgress(window.localStorage).rounds : []),
+    [open, roundOver, finished],
+  )
 
   // The instant local layer: engine facts render at ~0ms; prose is a bonus.
   const facts = useMemo(() => {
@@ -233,12 +248,29 @@ export function AnalysisPanel({
     const ctl = new AbortController()
     inFlight.current = { key: 'review', ctl }
     lastRun.current = 'review'
-    const r = await requestReview(finished.log, finished.result, {
-      ...(byoKey ? { byoKey } : {}),
-      ...(roomCode ? { roomCode } : {}),
-      signal: ctl.signal,
-      onDelta: setStreamText,
-    })
+    const r = await requestReview(
+      {
+        log: finished.log,
+        result: finished.result,
+        // Lets the SERVER run the decision-point scanner: it picks the moments
+        // and computes the numbers, and the model only explains them. Without
+        // the captured hands the server falls back to the whole-log prompt, so
+        // an unobserved round still gets a review — just a vaguer one.
+        scan: {
+          seat: view.seat,
+          roundWind: view.roundWind,
+          seatWinds: view.seatWinds,
+          faanMinimum: view.faanMinimum,
+          snapshots: finished.snapshots,
+        },
+      },
+      {
+        ...(byoKey ? { byoKey } : {}),
+        ...(roomCode ? { roomCode } : {}),
+        signal: ctl.signal,
+        onDelta: setStreamText,
+      },
+    )
     if (!(r.ok === false && r.error === 'cancelled')) setResult(r)
     if (r.ok === false && r.error !== 'cancelled') clearCooldown()
     setBusy(false)
@@ -411,6 +443,28 @@ export function AnalysisPanel({
         </p>
       )}
 
+      {/* Layer 3's entry point, deliberately OUTSIDE the coach gate: patterns
+          are computed locally from rounds already played, cost nothing and send
+          no request, so a room that disallows the AI coach must not hide them.
+          Not in every review either — it answers a different question ("how do
+          I keep losing?") and only means anything once rounds have accumulated. */}
+      {records.length >= 2 && (
+        <div className="mt-3">
+          <button
+            className="min-h-11 rounded-lg border border-emerald-600 px-4 py-2 font-semibold text-emerald-100 hover:bg-emerald-800 cursor-pointer"
+            aria-expanded={showPatterns}
+            onClick={() => setShowPatterns((v) => !v)}
+          >
+            {showPatterns ? 'Hide your patterns' : 'Your patterns'}
+          </button>
+          {showPatterns && (
+            <div className="mt-2">
+              <PatternsPanel records={records} />
+            </div>
+          )}
+        </div>
+      )}
+
       {/* One stable, min-height container for every coach-output state, so the
           panel doesn't jump when "Thinking…" is replaced by the answer. Every
           request settles — the client times out — so this can never be a
@@ -453,7 +507,22 @@ export function AnalysisPanel({
           )}
           {!failed && shownText && (
             <>
-              {shownText}
+              {/* A review that came back with an engine-graded shortlist renders
+                  as moments; everything else (the coach, and a review that fell
+                  back to the whole-log prompt) is still prose. */}
+              {result?.ok && result.review && finished ? (
+                <ReviewOutput
+                  review={result.review}
+                  text={result.text}
+                  log={finished.log}
+                  seat={view.seat}
+                  seatWinds={view.seatWinds}
+                  snapshots={finished.snapshots}
+                  numbered={numberedTiles}
+                />
+              ) : (
+                shownText
+              )}
               {result?.ok && result.model && (
                 <div className="mt-2 text-right text-[0.65rem] text-emerald-400/60">{result.model}</div>
               )}
@@ -462,7 +531,7 @@ export function AnalysisPanel({
         </div>
       )}
       <p className="mt-2 text-[0.65rem] text-emerald-400/50">
-        Tables = exact engine analysis (instant, local).
+        Tables, badges, replayed boards and every count = exact engine analysis (instant, local).
         {coachEnabled ? ` Prose = model narration${byoKey ? ', using your key' : ''}.` : ''}
       </p>
     </div>
