@@ -6,7 +6,9 @@ import type { TileId } from '../engine/types'
 import { TileView } from '../ui/TileView'
 import type { FinishedInfo } from '../ui/useGame'
 import { COACH_TIMEOUT_MS, requestCoach, requestReview, type AnalysisResult } from './client'
+import { PatternsPanel } from './PatternsPanel'
 import { ReviewOutput } from './ReviewOutput'
+import { loadProgress } from '../lessons/persistence'
 
 /**
  * Gap between MANUAL coach requests — a guard on the shared key's budget, not
@@ -91,6 +93,7 @@ export function AnalysisPanel({
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [cooldown, setCooldown] = useState(0)
   const [elapsed, setElapsed] = useState(0)
+  const [showPatterns, setShowPatterns] = useState(false)
   const lastManualCall = useRef(0)
   const inFlight = useRef<{ key: string; ctl: AbortController } | null>(null)
   const cache = useRef(new Map<string, string>())
@@ -100,6 +103,14 @@ export function AnalysisPanel({
   const myDiscardTurn = view.phase === 'discard' && view.turn === view.seat
   const roundOver = view.phase === 'finished' && finished !== null
   const key = viewKey(view)
+
+  // Read from storage rather than held in state: useRoundRecorder writes the
+  // round that just ended, and re-reading when the panel opens or the round
+  // finishes is what makes the newest round show up in the patterns.
+  const records = useMemo(
+    () => (open ? loadProgress(window.localStorage).rounds : []),
+    [open, roundOver, finished],
+  )
 
   // The instant local layer: engine facts render at ~0ms; prose is a bonus.
   const facts = useMemo(() => {
@@ -432,6 +443,27 @@ export function AnalysisPanel({
         </p>
       )}
 
+      {/* Layer 3's entry point, deliberately OUTSIDE the coach gate: patterns
+          are computed locally from rounds already played, cost nothing and send
+          no request, so a room that disallows the AI coach must not hide them.
+          Not in every review either — it answers a different question ("how do
+          I keep losing?") and only means anything once rounds have accumulated. */}
+      {records.length >= 2 && (
+        <div className="mt-3">
+          <button
+            className="min-h-11 rounded-lg border border-emerald-600 px-4 py-2 font-semibold text-emerald-100 hover:bg-emerald-800 cursor-pointer"
+            aria-expanded={showPatterns}
+            onClick={() => setShowPatterns((v) => !v)}
+          >
+            {showPatterns ? 'Hide your patterns' : 'Your patterns'}
+          </button>
+          {showPatterns && (
+            <div className="mt-2">
+              <PatternsPanel records={records} />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* One stable, min-height container for every coach-output state, so the
           panel doesn't jump when "Thinking…" is replaced by the answer. Every

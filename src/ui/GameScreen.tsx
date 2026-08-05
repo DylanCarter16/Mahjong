@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AnalysisPanel } from '../analysis/AnalysisPanel'
+import { useRoundRecorder } from '../analysis/useRoundRecorder'
 import { evalMyDiscards } from './aids'
 import { ActionBar } from './ActionBar'
 import { SEAT_NAMES } from './panels'
@@ -20,6 +21,10 @@ export function GameScreen({ settings, onChangeSettings }: {
   useEffect(() => {
     if (phase !== 'finished') setResultDismissed(false)
   }, [phase])
+
+  // Bank a graded record of every finished round, so the cross-round patterns
+  // view has something to look across whether or not a review was requested.
+  useRoundRecorder(view, finished)
 
   const myDiscardTurn = view !== null && view.phase === 'discard' && view.turn === HUMAN
   const evals = useMemo(

@@ -5,6 +5,7 @@
 
 import { useState } from 'react'
 import { AnalysisPanel } from '../analysis/AnalysisPanel'
+import { useRoundRecorder } from '../analysis/useRoundRecorder'
 import { useRoom, type JoinOptions } from '../net/useRoom'
 import { LobbyScreen } from './LobbyScreen'
 import { MultiplayerTable } from './MultiplayerTable'
@@ -29,6 +30,10 @@ export function MultiplayerScreen({
     room.leave()
     onLeave()
   }
+
+  // Same as solo: every finished round leaves a graded record behind. Called
+  // before the early returns below, because a hook cannot be conditional.
+  useRoundRecorder(state.view, state.finished)
 
   if (state.error) {
     return (
